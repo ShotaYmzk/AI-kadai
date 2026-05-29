@@ -20,6 +20,7 @@
 
 # 第1章　前処理と Pipeline
 ***
+※ 対応演習: [q8.ipynb](../q8.ipynb)
 ## 目次
 1. データの読み込みと確認
 2. 欠損値の補完
@@ -147,6 +148,7 @@ print("テスト正解率:", accuracy_score(y_test, y_pred))
 
 # 第2章　正則化
 ***
+※ 対応演習: [q9.ipynb](../q9.ipynb)
 ## 目次
 1. 過学習と正則化
 2. Ridge / Lasso 回帰
@@ -262,6 +264,7 @@ print("C と正解率:", dict(zip(C_values, scores)))
 
 # 第3章　アンサンブル学習
 ***
+※ 対応演習: [q10.ipynb](../q10.ipynb)
 ## 目次
 1. ランダムフォレスト
 2. 勾配ブースティング
@@ -357,6 +360,7 @@ plt.show()
 
 # 第4章　教師なし学習
 ***
+※ 対応演習: [q11.ipynb](../q11.ipynb)
 ## 目次
 1. k-means クラスタリング
 2. クラスタ数の評価
@@ -455,6 +459,7 @@ plt.show()
 
 # 第5章　不均衡データと ROC
 ***
+※ 対応演習: [q12.ipynb](../q12.ipynb)
 ## 目次
 1. 不均衡データの生成
 2. class_weight
@@ -547,6 +552,7 @@ plt.show()
 
 # 第6章　学習曲線とハイパーパラメータ
 ***
+※ 対応演習: [q13.ipynb](../q13.ipynb)
 ## 目次
 1. learning_curve
 2. validation_curve
@@ -661,6 +667,7 @@ for depth in [3, 20]:
 
 # 第7章　ニューラルネットワーク入門
 ***
+※ 対応演習: [q14.ipynb](../q14.ipynb)
 ## 目次
 1. 手書き数字データ
 2. MLPClassifier
@@ -758,6 +765,7 @@ plt.show()
 
 # 第8章　PyTorch 基礎
 ***
+※ 対応演習: [q15.ipynb](../q15.ipynb)
 ## 目次
 1. Tensor と自動微分
 2. Dataset / DataLoader
@@ -881,6 +889,7 @@ for epoch in range(3):
 
 # 第9章　CNN と総合のヒント
 ***
+※ 対応演習: [q16.ipynb](../q16.ipynb), [q17.ipynb](../q17.ipynb)
 ## 目次
 1. Conv2d と Pooling
 2. CNN モデルの実装
