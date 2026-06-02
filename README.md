@@ -45,10 +45,10 @@
 | 第11回 | q11.ipynb | 教師なし学習（k-means，PCA） | 第4章 |
 | 第12回 | q12.ipynb | 不均衡データ，ROC / PR 曲線 | 第5章 |
 | 第13回 | q13.ipynb | 学習曲線，validation curve | 第6章 |
-| 第14回 | q14.ipynb | ニューラルネットワーク（MLPClassifier） | 第7章 |
-| 第15回 | q15.ipynb | PyTorch 基礎（MNIST） | 第8章 |
-| 第16回 | q16.ipynb | CNN（Fashion-MNIST） | 第9章 |
-| 第17回 | q17.ipynb | 総合課題（EDA + Pipeline + モデル比較） | 第9章 |
+| 第14回 | q14.ipynb | PyTorch 入門（Tensor・DataLoader・MNIST 可視化） | 第7章 |
+| 第15回 | q15.ipynb | 全結合1層 NN 実装・学習・損失曲線 | 第8章 |
+| 第16回 | q16.ipynb | ANN・CNN・3モデル比較・混同行列 | 第9章 |
+| 第17回 | q17.ipynb | Colab Canvas UI + 手書き数字推論・考察 | 第9章 |
 
 ## データセット
 
@@ -60,7 +60,7 @@ data/
 ├── covid/newly_confirmed_cases_daily.csv   # q2, q4
 ├── student/student-mat.csv                 # q3, q4, q7, q9
 ├── student/student-por.csv                 # q3
-├── titanic/titanic.csv                     # q5, q8, q10, q17
+├── titanic/titanic.csv                     # q5, q8, q10
 ├── titanic/train.csv, test.csv             # Kaggle 形式
 └── sklearn/                                # 参考用 CSV（iris, wine など）
     ├── breast_cancer.csv
@@ -86,11 +86,13 @@ df_cvd = pd.read_csv(
 )
 ```
 
-q15 / q16 の MNIST・Fashion-MNIST はファイルとしては含めず，実行時に `torchvision` が `./data` 配下へ自動ダウンロードします。
+q14〜q17 の MNIST はファイルとしては含めず，実行時に `torchvision` が `./data` 配下へ自動ダウンロードします。
 
 ```python
-DATA_ROOT = "./data"  # q15, q16 で共通
+DATA_ROOT = "./data"  # q14, q15, q16, q17 で共通
 ```
+
+q17 の手書き推論 UI は **Google Colab** 上での実行を推奨します。Colab では q14〜q16 を順に実行後，q17 を開いてください。ローカル Jupyter では q17 の問題1（モデル読み込み）と問題3（考察）のみ実施可能です。
 
 ## 環境構築
 
@@ -101,7 +103,7 @@ pip install -r requirements.txt
 python -m ipykernel install --user --name ai-kadai --display-name "Python 3 (AI課題)"
 ```
 
-**macOS で XGBoost を使う場合（q10, q17）**: OpenMP ランタイムが必要です。
+**macOS で XGBoost を使う場合（q10）**: OpenMP ランタイムが必要です。
 
 ```bash
 brew install libomp

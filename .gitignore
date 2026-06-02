@@ -8,3 +8,4 @@ data/fashion_mnist/
 /student-mat.csv
 /student-por.csv
 /titanic.csv
+*.pth
