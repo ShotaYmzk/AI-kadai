@@ -776,11 +776,11 @@ print('決定係数:', reg.score(x, y)) # モデルの当てはまりの良さ�
 import matplotlib.pyplot as plt
 
 # plt.scatter(x, y) → 点（散布図）を描く
-plt.scatter(x, y, label='実測値')
+plt.scatter(x, y, label='Observed')
 
 # reg.predict(x) → 学習済みモデル（y = ax + b）で x の予測値を計算する
 # → 計算した予測値を y として折れ線で描くと回帰直線になる
-plt.plot(x, reg.predict(x), color='red', label='回帰直線')
+plt.plot(x, reg.predict(x), color='red', label='Regression line')
 
 plt.xlabel('G2')
 plt.ylabel('G3')
@@ -1093,8 +1093,8 @@ moving_avg = y.rolling(7).mean()
 
 # ---- Step 3: 陽性者数と移動平均を重ねてグラフにする ----
 plt.figure(figsize=(16, 9))
-plt.plot(x, y, label='陽性者数')                      # 実際の陽性者数
-plt.plot(x, moving_avg, label='7日間移動平均', color='red')  # 移動平均線（赤）
+plt.plot(x, y, label='Positive cases')                      # 実際の陽性者数
+plt.plot(x, moving_avg, label='7-day moving average', color='red')  # 移動平均線（赤）
 plt.legend()   # 凡例を表示（どの線が何かを示すラベル）
 plt.grid(True)
 plt.show()
@@ -1651,8 +1651,8 @@ y = df_math['G3'].values   # 目的変数：3学期の成績（予測したい�
 
 # ---- Step 3: G1 と G3 の関係を散布図で確認する ----
 plt.scatter(x, y)                    # G1 を x 軸，G3 を y 軸に点をプロット
-plt.xlabel('G1（一学期の成績）')
-plt.ylabel('G3（三学期の成績）')
+plt.xlabel('G1 (1st-term grade)')
+plt.ylabel('G3 (final grade)')
 plt.grid(True)
 plt.show()
 
@@ -1676,13 +1676,13 @@ print(f'決定係数(train): {model.score(x_train, y_train):.4f}')  # 訓練デ�
 print(f'決定係数(test):  {model.score(x_test, y_test):.4f}')    # テストデータでの評価
 
 # ---- Step 7: 散布図と回帰直線を重ねて描画する ----
-plt.scatter(x, y, label='データ点')   # 実測値の散布図
+plt.scatter(x, y, label='Data points')   # 実測値の散布図
 # sorted(x) → x を昇順に並べる（回帰直線が左から右にきれいに引かれるように）
 # model.predict(xi) → 各 xi に対して y = ax + b を計算
 plt.plot(sorted(x), [model.predict(xi) for xi in sorted(x)],
-         color='red', label='回帰直線')
-plt.xlabel('G1（一学期の成績）')
-plt.ylabel('G3（三学期の成績）')
+         color='red', label='Regression line')
+plt.xlabel('G1 (1st-term grade)')
+plt.ylabel('G3 (final grade)')
 plt.legend()   # 凡例（データ点・回帰直線のラベル）を表示
 plt.grid(True)
 plt.show()

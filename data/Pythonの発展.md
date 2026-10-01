@@ -1,6 +1,7 @@
 # Pythonの発展
 ***
 ## 目次
+0. 試行錯誤の作法（q9–q17 共通）
 1. 前処理と Pipeline
 2. 正則化
 3. アンサンブル学習
@@ -17,6 +18,234 @@
 本資料は，Scikit-learn の基礎を土台に，**前処理の自動化**，**正則化**，**アンサンブル学習**，**教師なし学習**，**深層学習** など，第8回以降の演習（q8–q17）で必要となる知識を，概念の「なぜ」から実装の「どう書くか」まで徹底的に解説する．
 
 各章では概念説明・数式・図解・コード例を組み合わせる．コードは動作確認済みのもので，コメントにより各行の意味を明記する．演習の答えそのものは書かないが，ここを読めば確実に解けるレベルの情報を提供する．
+
+**q9–q17 は「探索型」の演習である．** 正解のパラメータは与えられず，仮説を立てて何度も試し，記録し，最適な設定を自分で見つける．そのため本資料では，
+
+- **第0章**：探索の共通の作法（検証とテストの分離，差が偶然かの見分け方，粗→細の探索，実験前の予測，記録帳，LLM への指示書の書き方）
+- **第2〜9章の各末尾**：その回の探索に必要な知識（探索軸の意味，桁の目安，落とし穴，予測を立てるための問い，指示書に書くべき知識）
+
+を追加している．**探索の結果（最適なパラメータの値）は書いていない**．それはあなたが試行錯誤で見つけるものである．
+
+---
+
+# 第0章　試行錯誤の作法（q9–q17 共通）
+***
+※ 対応演習: [q9.ipynb](../q9.ipynb) 〜 [q17.ipynb](../q17.ipynb)
+
+## 目次
+1. なぜ「探索」を学ぶのか
+2. 探索のサイクル：仮説 → 試行 → 記録
+3. 検証とテストの分離（探索するほどスコアは楽観的になる）
+4. 差が「偶然」かどうかを見分ける
+5. 探索の設計：粗く → 細かく，端に張り付いたら広げる
+6. 実験前の予測を書く理由
+7. 記録帳 `Lab` の仕組み
+8. LLM への指示書の書き方
+
+---
+
+## 1. なぜ「探索」を学ぶのか
+
+q9–q17 では，**「正解のパラメータ」は与えられない**．`alpha` も `max_depth` も `lr` も，自分で何度も試して見つける．
+
+コードは AI（LLM）に書かせられる時代である．しかし LLM は次のことを**あなたに代わって決められない**．
+
+| 人が決めること | 例 |
+|---|---|
+| 何を最大化するか（目的・評価指標） | 正解率か，Recall を保った上での Precision か |
+| どう測れば騙されないか（検証の設計） | テストデータは最後に1回だけ，CV で選ぶ |
+| どこを探すか（探索範囲と刻み） | `alpha` は桁で振る，`k` は 2〜8 |
+| いつ止めるか（採用基準） | 差が偶然の範囲なら単純な方を選ぶ |
+| 出力が正しいかを見抜くこと | ベストが探索範囲の端にないか，テストを見て選んでいないか |
+
+この5つは，**自分で試行錯誤した経験がないと持てない知識**である．q9–q17 の狙いは，その経験を積み，最後に「LLM に渡せる指示書」として書き出せるようにすることにある．
+
+## 2. 探索のサイクル：仮説 → 試行 → 記録
+
+```
+①仮説を立てる → ②試す → ③記録する → ④結果を見て仮説を直す → ①へ戻る
+ 「alpha を上げると       1行の記録が       「外れた．なぜ？」
+  テストが上がるはず」     自動で残る
+```
+
+**仮説を書く**ことが重要である．やみくもな総当たりでは，結果が出ても「なぜそうなったか」が残らない．仮説が外れたとき，そこに学びがある．
+
+記録に残すもの：
+
+| 項目 | 理由 |
+|---|---|
+| 試行番号 | 後で「試行 #7 では〜」と引用できる |
+| 設定（パラメータ） | 再現するため |
+| 検証スコア | 比較するため |
+| ばらつき（`cv_std` など） | 差が偶然かを判断するため |
+| 補助指標（訓練スコア，gap，所要時間） | 過学習やコストを読むため |
+| 仮説（1行） | 何を確かめる試行だったかを残すため |
+
+## 3. 検証とテストの分離（探索するほどスコアは楽観的になる）
+
+データは3つの役割に分ける．
+
+| 役割 | 使い道 | 使ってよい回数 |
+|---|---|---|
+| 訓練 | モデルの学習 | 何度でも |
+| 検証（CV など） | 設定の比較・選択 | 何度でも（ただし後述の注意あり） |
+| テスト | 最終的な性能の報告 | **1回だけ** |
+
+**なぜ検証スコアで選ぶだけでも楽観的になるのか**．設定を何十通りも試すと，偶然スコアが高く出た設定が「最良」として選ばれやすい．次のコードは，**完全にノイズのデータ**でこれを再現する．
+
+```python
+import numpy as np
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.linear_model import LogisticRegression
+
+rng = np.random.RandomState(0)
+X = rng.randn(200, 50)                   # 50 個の特徴量（すべてノイズ）
+y = rng.randint(0, 2, 200)               # ラベルもランダム（本当は予測できない）
+X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.5, random_state=0)
+
+best_cv, best_cols = -1, None
+for trial in range(200):                 # ランダムな特徴量の組合せを 200 通り「探索」する
+    cols = rng.choice(50, 5, replace=False)
+    cv = cross_val_score(LogisticRegression(), X_tr[:, cols], y_tr, cv=5).mean()
+    if cv > best_cv:
+        best_cv, best_cols = cv, cols
+
+final = LogisticRegression().fit(X_tr[:, best_cols], y_tr)
+print(f"探索で見つけた最良の CV 正解率 = {best_cv:.3f}")                          # 0.5 より明らかに高く見える
+print(f"テスト正解率（1回だけ）       = {final.score(X_te[:, best_cols], y_te):.3f}")  # 0.5 付近に戻る
+```
+
+探索を重ねた検証スコアは，本来の性能より高く出る．だからこそ**テストデータは探索に一切使わず，最後に1回だけ**評価する．テストを見てから設定を変えると，テストも「検証」になってしまい，この楽観バイアスから逃れられなくなる（データリーク）．
+
+> q9–q17 の記録帳は，`final_test()` を **2回呼ぶとエラー**になる．これは「テストを見て選び直す」誘惑を仕組みで防ぐためである．
+
+## 4. 差が「偶然」かどうかを見分ける
+
+CV の 5 回の分割で出るスコアには**ばらつき**がある．平均だけでなく標準偏差（`cv_std`）を見る．
+
+```python
+from sklearn.datasets import load_breast_cancer
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+
+X, y = load_breast_cancer(return_X_y=True)
+cv5 = StratifiedKFold(5, shuffle=True, random_state=0)
+
+for depth in (2, 3, 5, None):
+    s = cross_val_score(DecisionTreeClassifier(max_depth=depth, random_state=0), X, y, cv=cv5)
+    print(f"max_depth={str(depth):>4}  平均={s.mean():.4f}  標準偏差={s.std():.4f}")
+```
+
+判断の目安：
+
+- 2つの設定の**平均の差が標準偏差より小さい** → 「差がある」とは言えない（偶然かもしれない）
+- 僅差のときは，**乱数シードを変えて繰り返す**（`random_state` や `torch.manual_seed`）か，`RepeatedStratifiedKFold` で分割を増やして確かめる
+- 差が偶然の範囲なら，**最良から標準偏差以内で最も単純なモデルを選ぶ**（**1標準偏差ルール**）．単純なモデルの方が過学習しにくく，解釈もしやすく，計算も軽いから
+
+## 5. 探索の設計：粗く → 細かく，端に張り付いたら広げる
+
+**① 桁で振る（粗探索）**．学習率や正則化の強さは，値が10倍違うだけで挙動が大きく変わる．線形に 0.1, 0.2, 0.3 … と振るのではなく，**対数スケール**で振る．
+
+```python
+import numpy as np
+print(np.logspace(-3, 3, 7))    # 0.001, 0.01, 0.1, 1, 10, 100, 1000（桁で広く）
+```
+
+**② 良さそうな範囲を細かく（絞り込み）**．粗探索で山が見えたら，その周辺を細かく調べる．
+
+```python
+import numpy as np
+from sklearn.datasets import load_diabetes
+from sklearn.linear_model import Lasso
+from sklearn.model_selection import cross_val_score
+
+X, y = load_diabetes(return_X_y=True)
+def cv_r2(alpha):
+    return cross_val_score(Lasso(alpha=alpha, max_iter=10000), X, y, cv=5, scoring="r2").mean()
+
+coarse = np.logspace(-3, 3, 7)                                # 粗探索
+scores = [cv_r2(a) for a in coarse]
+a_best = coarse[int(np.argmax(scores))]
+print("粗探索のベスト:", a_best, "／ 探索範囲の端か:", a_best in (coarse[0], coarse[-1]))   # 端なら範囲を広げて確かめる
+fine = np.logspace(np.log10(a_best) - 1, np.log10(a_best) + 1, 9)   # ベスト周辺を細かく
+for a in fine:
+    print(f"alpha={a:8.4f}  CV R2={cv_r2(a):.4f}")
+```
+
+**③ ベストが探索範囲の端に来たら，範囲を広げる**．端がベストということは，「その先にもっと良い所がある」かもしれない．逆に，**端まで行っても頭打ちなら**，そこが答えの近くである．
+
+**④ 頭打ちの判断**．ベスト更新の推移が横ばいになり，上位設定の差が `cv_std` 以内になったら，探索を止めてよい．探索には計算予算がある．**1試行の時間 × 試行回数**を見積もり，粗探索は少ないデータ・少ないエポックで回す，といった工夫も有効である．
+
+**⑤ 1軸ずつか，同時か**．軸が多いときは，まず1軸ずつ動かして「効く軸」を見つけ（**効果の分解**），効く軸に予算を集中する．軸同士に相互作用があるとき（例：学習率を下げたら木の本数を増やす）は，組合せて確かめる．
+
+## 6. 実験前の予測を書く理由
+
+試す前に「最良は alpha≈○○，理由は△△」と**予測を書いて固定する**．結果が出てから「やっぱりそう思っていた」と後付けしてしまうのを防ぐためである．
+
+- 予測が当たった → その知識は使える
+- 予測が外れた → **どの前提が間違っていたか**を特定する．ここが最大の学習機会である
+
+LLM に予測を聞いてもよい．そのときは LLM の回答をそのまま記録し，**LLM の予測と実験結果のズレ**も分析する．LLM が外す場所（そのデータ固有の性質）こそ，あなたが持つべき知識である．
+
+## 7. 記録帳 `Lab` の仕組み
+
+q9–q17 の最初のコードセルには `Lab` クラスが入っている．中身は次のような小さな仕組みである（読んで理解しておくこと）．
+
+```python
+class MiniLab:
+    """試行を1行ずつ溜める最小の記録帳"""
+    def __init__(self):
+        self.rows = []
+
+    def log(self, hypothesis, params, score, **extra):
+        if any(r["params"] == params for r in self.rows):      # 同じ設定は重複記録しない
+            print("既に試した設定です:", params); return
+        self.rows.append(dict(trial=len(self.rows) + 1, hypothesis=hypothesis,
+                              params=params, score=score, extra=extra))
+
+    def best(self):
+        return max(self.rows, key=lambda r: r["score"])
+
+lab = MiniLab()
+lab.log("alpha=1 を基準にする", {"alpha": 1.0}, 0.42, cv_std=0.05)
+lab.log("alpha を10倍にする",   {"alpha": 10.0}, 0.47, cv_std=0.04)
+print(lab.best()["params"])
+```
+
+実際の `Lab` は，これに次の機能が加わっている．
+
+| 機能 | 内容 |
+|---|---|
+| `lab.df()` | 全試行を表（DataFrame）にする |
+| `lab.plot(x=..., group=...)` | 設定とスコアの関係，ベスト更新の推移を描く |
+| `lab.report()` | 探索の自己診断（回数・範囲・端に張り付いていないか・仮説を書いたか） |
+| `lab.final_test(fn)` | テストの最終評価。**1回だけ**（2回目はエラー） |
+| `lab.save()` | 全履歴を CSV に保存 |
+
+## 8. LLM への指示書の書き方
+
+各演習の最終問では，得た知識を **LLM がそのまま使える指示書**に書き起こす．良い指示書の条件は，「この課題を初めて見る別の人（や LLM）が，**あなたの試行錯誤をやり直さずに**最適設定へ最短で到達できる」ことである．
+
+**指示書に入れる6項目**
+
+| 項目 | 書くこと | 悪い例 → 良い例 |
+|---|---|---|
+| 目的と指標 | 何を最大化し，なぜその指標か | 「精度を上げて」→「CV 正解率を最大化．テストは最後に1回だけ．理由：探索でテストを使うと楽観的になる」 |
+| データの事実 | 件数・特徴量数・クラス比・スケール | 「表データです」→「569 件・30 特徴量・良性 63%．CV の標準偏差は約 0.02」 |
+| 探索計画 | 軸・範囲・刻み・順序と，その根拠 | 「いろいろ試して」→「learning_rate は 0.01〜0.5 を対数で．根拠：試行 #5 で 0.5 が端だったので広げた」 |
+| 落とし穴 | 自分が実際に見た罠と見抜き方 | 「過学習に注意」→「max_depth=50 で train 1.0 / CV 0.93．gap が 0.05 を超えたら過学習と判断」 |
+| 採用基準・止めどき | いつ止めるか，僅差のときの選び方 | 「良さそうなら終了」→「上位が cv_std 以内なら最も単純なものを採用．ベスト更新が5回連続で無ければ終了」 |
+| 検証方法 | LLM の出力をどの数値で信じる／疑うか | 「確認して」→「テストを使っていないか，ベストが範囲の端でないか，記録した CV が再現できるかを確認」 |
+
+**LLM の出力を採点するチェックリスト**
+
+- [ ] テストデータを探索に使っていないか（`test` が探索ループに現れていないか）
+- [ ] 探索範囲が桁で広く取られているか．ベストが端に来ていないか
+- [ ] 差が `cv_std` 以内なのに「最良」と断定していないか
+- [ ] 提案された数値を，**自分のログで再現・反証できるか**（試行番号で示せるか）
+- [ ] 前処理（標準化・分割）が CV の内側で行われているか（リークしていないか）
+
+LLM が正しく答えたら○，違ったら×を，**自分のログを根拠に**書く．これが「知識を得て LLM にインプットできる」ことの証拠になる．
 
 ---
 
@@ -318,6 +547,7 @@ A: デフォルトでは変換結果がメモリ効率の良いスパース行�
 4. ロジスティック回帰の正則化
 5. 正則化強度 C の比較
 6. ElasticNet と正則化パス
+7. 探索の手引き（q9 対応）
 
 ---
 
@@ -505,7 +735,7 @@ plt.figure(figsize=(8, 5))
 plt.plot(C_values, train_scores, marker="o", label="Train accuracy")
 plt.plot(C_values, test_scores,  marker="s", label="Test accuracy")
 plt.xscale("log")                           # ← 横軸を対数スケールに
-plt.xlabel("C（大きいほど正則化が弱い）")
+plt.xlabel("C (larger = weaker regularization)")
 plt.ylabel("Accuracy")
 plt.title("Regularization strength C vs accuracy")
 plt.legend()
@@ -553,13 +783,85 @@ for i, name in enumerate(X_multi.columns):
     plt.plot(alphas, coefs[i], label=name)
 plt.xscale("log")
 plt.gca().invert_xaxis()      # 左から右に「正則化が弱→強」と読む
-plt.xlabel("alpha（左が弱い，右が強い）")
-plt.ylabel("係数")
-plt.title("Lasso 正則化パス（αを強くすると係数が0になっていく）")
+plt.xlabel("alpha (left = weak, right = strong)")
+plt.ylabel("Coefficient")
+plt.title("Lasso regularization path (coefficients shrink to 0 as alpha grows)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
 ```
+
+## 7. 探索の手引き（q9 対応）
+
+q9 では `alpha`（Ridge/Lasso）と `C`（ロジスティック回帰）を，自分で探索する．答えは書かないが，**探索を設計するために必要な知識**をここにまとめる．全体の作法は[第0章](#第0章試行錯誤の作法q9q17-共通)を参照．
+
+### 7-1. 多項式展開で特徴量はいくつになるか
+
+`PolynomialFeatures(degree=d)` は，元の特徴量 n 個から `C(n+d, d) - 1` 個（`include_bias=False`）の特徴量を作る．n=14 で d を上げると，特徴量の数は爆発的に増える．サンプル数（q9 の回帰データは 395 件）と比べて，**特徴量数がサンプル数を超えたとき何が起きるか**を，実験前の予測に使うこと．
+
+```python
+from math import comb
+n = 14
+for d in (1, 2, 3):
+    print(f"degree={d}: 特徴量数 = {comb(n + d, d) - 1}")
+```
+
+### 7-2. `alpha` の探索範囲の決め方
+
+- **必ず標準化してから**正則化する（`Pipeline` の中に `StandardScaler` を入れる．CV の各分割で標準化をやり直すため）
+- `alpha` は**桁で**振る（第0章）．`Ridge` と `Lasso` では `alpha` の意味するスケールが違う．`Lasso` の目的関数は `RSS/(2n) + α·Σ|w|`（RSS をサンプル数 n で割る），`Ridge` は `RSS + α·Σw²`（割らない）．**同じ数値の `alpha` を両者に使っても，強さは同じではない**ので，モデルごとに範囲を確かめる
+- `Lasso` で `alpha` を大きくしすぎると**係数が全部 0**になり，予測が「平均値」だけになる．このとき R² は 0 付近に張り付く．「探索範囲が広すぎて無意味な領域に入った」サインである
+- **R² が負**になるのは「平均値を出すより悪い」ということ．過学習が激しいときに起きる
+
+```python
+import numpy as np
+from sklearn.datasets import make_regression
+from sklearn.linear_model import Lasso, Ridge
+from sklearn.preprocessing import StandardScaler
+
+X, y = make_regression(n_samples=200, n_features=30, n_informative=5, noise=10, random_state=0)
+Xs = StandardScaler().fit_transform(X)
+for a in (0.01, 0.1, 1, 10, 100):
+    nz = np.sum(np.abs(Lasso(alpha=a, max_iter=10000).fit(Xs, y).coef_) > 1e-8)
+    print(f"Lasso alpha={a:>6}: 非ゼロ係数 {nz}/30")
+```
+
+### 7-3. `LogisticRegression` の `C` と `solver`
+
+- `C` は `alpha` の**逆向き**（`C` 大 → 正則化弱）．探索は対数スケールで
+- `penalty="l1"` を使うには `solver="liblinear"` か `"saga"` が必要
+- **`liblinear` は切片（バイアス項）にも正則化をかける**．そのため，`C` を非常に小さくした L1 では，係数だけでなく切片まで 0 に縮み，**全サンプルが同じクラスに予測される**ことがある．そのとき正解率は「片方のクラスの比率」になる．「正解率が急に不自然な値になったら，全員同じ予測になっていないか」を疑うこと
+- L2 と L1 で，同じ `C` でも意味する強さは違う．`penalty` ごとに `C` の範囲を確かめる
+
+### 7-4. 特徴量グループを切り替えて効きを調べる（アブレーション）
+
+「どの情報が予測に効くか」は，**特徴量のグループを外したり加えたりして CV スコアの変化を見る**ことで調べられる．
+
+```python
+# 例：グループを切り替えて CV 正解率を比べる（列名のリストを変えるだけ）
+groups = {"A": ["f0", "f1"], "B": ["f2", "f3"]}
+# for names in (["A"], ["B"], ["A", "B"]):
+#     cols = [c for g in names for c in groups[g]]
+#     score = cross_val_score(model, X[cols], y, cv=cv5).mean()
+```
+
+注意：グループを外して精度が落ちても，それは「**その情報が予測に効く**」（相関）であって，「**その要因が結果の原因である**」（因果）ではない．例えば「過去の落第回数が予測に効く」ことから「落第させれば成績が上がる／下がる」とは言えない．
+
+### 7-5. 実験前に立てる予測の例（問いのみ）
+
+- 特徴量数がサンプル数に近づくと，正則化なしの回帰の CV R² はどうなるか
+- 最良の `alpha` は，`degree` を上げると大きくなるか，小さくなるか．それはなぜか
+- `Ridge` と `Lasso` のどちらが，非ゼロ係数の数で違いが出るか
+
+### 7-6. LLM 指示書に入れる知識（q9）
+
+| 項目 | q9 で書くべき知識の例（自分のログで裏付けること） |
+|---|---|
+| 目的 | CV R²（回帰）／CV 正解率（分類）を最大化．テストは最後に1回 |
+| データ | サンプル数と特徴量数（degree ごと），クラス比，標準化が必須なこと |
+| 探索計画 | `alpha`・`C` は対数．モデルごとに範囲を分ける．`degree` は1つずつ上げる |
+| 落とし穴 | Lasso の全係数ゼロ，liblinear の切片の縮み，R² が負 |
+| 止めどき | 上位が `cv_std` 以内なら単純なモデル（次数が低い・非ゼロ係数が少ない）を採用 |
 
 ---
 
@@ -590,6 +892,7 @@ A: LogisticRegression はデフォルト100回の反復で収束しないこと�
 4. XGBoost — 仕組みと実装
 5. XGBoost のハイパーパラメータ詳解
 6. 特徴量重要度
+7. 探索の手引き（q10 対応）
 
 ---
 
@@ -859,7 +1162,7 @@ plt.bar(
 )
 plt.xlabel("Feature")
 plt.ylabel("Importance")
-plt.title("RandomForest feature importance（降順）")
+plt.title("RandomForest feature importance (descending)")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
@@ -874,6 +1177,83 @@ print("最重要特徴量:", feature_names[sorted_idx[0]])
 - **重要度が低い = 不要** とは限らない → 相関によって他の特徴量に重要度が「吸われている」可能性
 
 より信頼性の高い解釈のために SHAP（SHapley Additive exPlanations）という手法もある（発展的内容）．
+
+## 7. 探索の手引き（q10 対応）
+
+q10 では `GradientBoostingClassifier` の `n_estimators`・`max_depth`・`learning_rate`・`subsample` を探索する．
+
+### 7-1. 4つのパラメータの役割と目安
+
+| パラメータ | 役割 | 探索の目安 |
+|---|---|---|
+| `learning_rate` | 各木の寄与率．大きいほど一気に学習（過学習しやすい） | 対数で 0.01〜0.5 |
+| `n_estimators` | 木の本数．多いほど複雑 | `learning_rate` とセットで考える（次項） |
+| `max_depth` | 各木の深さ．浅い木を多数組み合わせるのが基本 | 1〜5 |
+| `subsample` | 各木の学習に使う訓練データの割合．1.0 未満だと**確率的勾配ブースティング**になり，木ごとに見るデータが変わって過学習を抑える | 0.5〜1.0 |
+
+### 7-2. `learning_rate` と `n_estimators` はトレードオフ
+
+学習率を小さくすると1本あたりの寄与が減るので，同じ精度に到達するには木が多く必要になる．探索では**別々に動かすのではなく，組み合わせて**確かめる．
+
+### 7-3. 1回の学習で `n_estimators` の効果を見る（`staged_predict`）
+
+勾配ブースティングは木を順番に足していくので，**最大本数で1回学習すれば，途中の本数での予測も全部取り出せる**．`n_estimators` を何通りも学習し直す必要はない．
+
+```python
+import numpy as np
+from sklearn.datasets import load_breast_cancer
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+
+X, y = load_breast_cancer(return_X_y=True)
+X_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.3, random_state=0, stratify=y)
+
+gb = GradientBoostingClassifier(n_estimators=300, learning_rate=0.1, max_depth=2, random_state=0).fit(X_tr, y_tr)
+val_acc = [accuracy_score(y_val, p) for p in gb.staged_predict(X_val)]   # 1本目〜300本目までの検証正解率
+for n in (10, 50, 100, 200, 300):
+    print(f"n_estimators={n:>3}: 検証正解率 = {val_acc[n - 1]:.4f}")
+```
+
+これは「探索コストを減らす工夫」の例である．**探索の前に，1回の学習で何がわかるかを考える**習慣をつける．
+
+### 7-4. 正解率が「飽和」するデータでの比べ方
+
+乳がんデータのように分けやすいデータでは，多くの設定で正解率が 0.95 前後に集まり，**差が `cv_std` より小さく**なりやすい．そのとき：
+
+- 正解率の代わりに**対数損失**（`scoring="neg_log_loss"`）で比べると，確信度の違いまで見えて差が出やすい
+- 乱数分割を増やす（`RepeatedStratifiedKFold`）と，`cv_std` が小さくなって差が判断しやすくなる
+- それでも差が偶然の範囲なら，**計算が軽く単純な設定**（浅い・本数が少ない）を選ぶ
+
+```python
+from sklearn.model_selection import cross_val_score, RepeatedStratifiedKFold
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.datasets import load_breast_cancer
+X, y = load_breast_cancer(return_X_y=True)
+cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=3, random_state=0)
+s = cross_val_score(GradientBoostingClassifier(n_estimators=100, max_depth=2, random_state=0), X, y, cv=cv, scoring="neg_log_loss")
+print(f"neg_log_loss 平均={s.mean():.4f}  標準偏差={s.std():.4f}")
+```
+
+### 7-5. 過学習の見方
+
+`train_acc` が 1.0 なのに CV が低い（gap が大きい）のは典型的な過学習．ただしブースティングでは **`train_acc` が 1.0 に張り付いても CV が下がらない**ことがある．「訓練が 1.0 だから過学習」と決めつけず，**CV の推移で判断する**．
+
+### 7-6. 実験前に立てる予測の例（問いのみ）
+
+- `max_depth` を 1 → 5 と上げたとき，CV スコアは単調に上がるか
+- `subsample=0.7` は，`subsample=1.0` より良くなるか．どのくらいの差なら「意味がある」と言えるか
+- 最も効く軸は，4つのうちどれか
+
+### 7-7. LLM 指示書に入れる知識（q10）
+
+| 項目 | 書くべき知識の例 |
+|---|---|
+| 目的 | CV 正解率（または対数損失）最大化．テストは最後に1回 |
+| データ | 件数・特徴量数・クラス比，`cv_std` の大きさ |
+| 探索計画 | `learning_rate` は対数．`n_estimators` は学習率とセット．`staged_predict` で本数の探索を節約 |
+| 落とし穴 | 正解率の飽和，train が 1.0 でも CV が下がらない場合がある |
+| 止めどき | 上位が `cv_std` 以内なら軽くて単純な設定 |
 
 ---
 
@@ -906,6 +1286,7 @@ A: 学習率を小さくすると1回の更新量が小さくなり，より細�
 5. PCA による次元削減
 6. t-SNE との比較
 7. 2次元可視化
+8. 探索の手引き（q11 対応）
 
 ---
 
@@ -1001,15 +1382,15 @@ for k in k_range:
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
 
 ax1.plot(list(k_range), wcss_scores, marker="o")
-ax1.set_xlabel("k（クラスタ数）")
-ax1.set_ylabel("WCSS（クラスタ内二乗和）")
-ax1.set_title("エルボー法: WCSS が急に鈍くなる点が最適 k")
+ax1.set_xlabel("k (number of clusters)")
+ax1.set_ylabel("WCSS (within-cluster sum of squares)")
+ax1.set_title("Elbow method: pick k where WCSS flattens")
 ax1.grid(True, alpha=0.3)
 
 ax2.plot(list(k_range), sil_scores, marker="o")
-ax2.set_xlabel("k（クラスタ数）")
+ax2.set_xlabel("k (number of clusters)")
 ax2.set_ylabel("Silhouette score")
-ax2.set_title("シルエット法: スコアが最大の k を選ぶ")
+ax2.set_title("Silhouette method: pick k with the highest score")
 ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
@@ -1071,9 +1452,9 @@ labels_db = dbscan.fit_labels_
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 ax1.scatter(X_moon[:,0], X_moon[:,1], c=labels_km, cmap="bwr", alpha=0.7)
-ax1.set_title("k-means（月型に失敗）")
+ax1.set_title("k-means (fails on moons)")
 ax2.scatter(X_moon[:,0], X_moon[:,1], c=labels_db, cmap="bwr", alpha=0.7)
-ax2.set_title("DBSCAN（月型を正確に検出）")
+ax2.set_title("DBSCAN (finds the moons)")
 plt.tight_layout()
 plt.show()
 ```
@@ -1138,9 +1519,9 @@ cumvar = pca_all.explained_variance_ratio_.cumsum()
 plt.figure(figsize=(7, 4))
 plt.plot(range(1, len(cumvar)+1), cumvar, marker="o")
 plt.axhline(y=0.95, color="r", linestyle="--", label="95% threshold")
-plt.xlabel("主成分の数")
-plt.ylabel("累積寄与率")
-plt.title("何次元で元の情報の何%を保持できるか")
+plt.xlabel("Number of components")
+plt.ylabel("Cumulative explained variance ratio")
+plt.title("Variance kept by the first n components")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -1184,8 +1565,8 @@ for label in np.unique(wine.target):
         label=f"class {label} ({wine.target_names[label]})",
         alpha=0.7,
     )
-plt.xlabel(f"PC1（寄与率: {pca.explained_variance_ratio_[0]:.1%}）")
-plt.ylabel(f"PC2（寄与率: {pca.explained_variance_ratio_[1]:.1%}）")
+plt.xlabel(f"PC1 (explained variance: {pca.explained_variance_ratio_[0]:.1%})")
+plt.ylabel(f"PC2 (explained variance: {pca.explained_variance_ratio_[1]:.1%})")
 plt.title("Wine dataset PCA (2D)")
 plt.legend()
 plt.grid(True, alpha=0.3)
@@ -1194,6 +1575,64 @@ plt.show()
 ```
 
 **注意**: 色分けには正解ラベルを使っているが，**PCA の学習にはラベルを一切使っていない**．教師なし学習の評価として，「PCA の結果を正解ラベルで事後的に確認する」のは正当な手続きである．
+
+## 8. 探索の手引き（q11 対応）
+
+q11 では，**正解ラベル無し**でクラスタリングの設定（手法・クラスタ数・標準化・PCA）を探索する．「良し悪しをどう測るか」が最大の論点である．
+
+### 8-1. ラベル無しで使える物差し
+
+| 指標 | 何を測るか | 注意 |
+|---|---|---|
+| シルエットスコア | クラスタ内が近く，他クラスタと遠いほど高い（-1〜1） | **どの空間で測るかを固定する**．標準化の有無や PCA で空間が変わると，スコアは比べられない |
+| inertia | クラスタ内誤差の合計（k-means のみ） | k を増やせば**必ず**下がる．エルボー（折れ曲がり）を読むために使う |
+| BIC / AIC（混合ガウス） | モデルの当てはまりと複雑さのバランス | 小さいほど良い．クラスタ数の選択に使える |
+| ARI | 正解ラベルとの一致度 | 現実にはラベルが無い．**「答え合わせ」であって探索の物差しではない** |
+
+ARI（や正解ラベル）を見てから手法を選ぶと，「ラベルが無いと使えない選び方」になってしまう．q11 で ARI を最後に1回だけ見るのはこのためである．
+
+### 8-2. k-means 以外の手法
+
+- **階層型クラスタリング**（`AgglomerativeClustering(linkage="ward")`）：近いものから順に併合していく．`inertia_` は無い
+- **混合ガウス**（`GaussianMixture`）：クラスタをガウス分布の混合で表す．楕円形のクラスタも表現でき，`bic(X)` でクラスタ数を選べる
+
+```python
+from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.datasets import load_iris
+from sklearn.metrics import silhouette_score
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+
+Xs = StandardScaler().fit_transform(load_iris().data)
+for k in (2, 3, 4):
+    km = KMeans(n_clusters=k, random_state=0, n_init=10).fit_predict(Xs)
+    wd = AgglomerativeClustering(n_clusters=k, linkage="ward").fit_predict(Xs)
+    gm = GaussianMixture(n_components=k, random_state=0).fit(Xs)
+    print(f"k={k}: silhouette kmeans={silhouette_score(Xs, km):.3f}  ward={silhouette_score(Xs, wd):.3f}  "
+          f"GMM の BIC={gm.bic(Xs):.1f}")
+```
+
+### 8-3. 標準化・PCA の効き方
+
+- 距離を使う手法は，**スケールの大きい特徴量に引きずられる**．標準化の有無で結果が変わるかを，「標準化なし・あり」の1つずつの比較（効果の分解）で確かめる
+- PCA で次元を減らしてからクラスタリングすると，ノイズが減って安定することも，情報が落ちて悪化することもある．**どちらになるかはデータ次第**なので，実験で確かめる
+- シルエットは「はっきり離れた大きなまとまり」を高く評価する傾向がある．近接した群があるデータでは，**シルエット最大の k と，人が「意味がある」と思う k が食い違う**ことがある．食い違ったときに何を優先するかが，指示書に書くべき知識である
+
+### 8-4. 実験前に立てる予測の例（問いのみ）
+
+- 標準化を外すと，クラスタは変わるか．どの特徴量が支配的になるか
+- シルエットが最大になる k は，実際の品種数と一致するか
+- 手法（k-means・階層型・混合ガウス）で，シルエットに差は出るか
+
+### 8-5. LLM 指示書に入れる知識（q11）
+
+| 項目 | 書くべき知識の例 |
+|---|---|
+| 目的 | ラベル無しの物差し（シルエット，エルボー，BIC）で選ぶ．ARI は最後に1回の答え合わせ |
+| データ | 件数・特徴量数・スケールの違い |
+| 探索計画 | k の範囲，手法，標準化の有無，PCA の次元．1つずつ動かして効果を分解 |
+| 落とし穴 | シルエットの測る空間を揃える，ラベルを見て選ぶリーク，シルエット最大＝意味のある k とは限らない |
+| 止めどき | シルエットとエルボーが食い違うとき，どちらを優先し，何を追加で確認するか |
 
 ---
 
@@ -1221,6 +1660,7 @@ A: (1) 特徴量数が多くモデルが遅い場合，(2) 特徴量間の相関
 4. ROC 曲線と AUC
 5. Precision-Recall 曲線
 6. 不均衡データへの対処法まとめ
+7. 探索の手引き（q12 対応）
 
 ---
 
@@ -1323,7 +1763,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
 
 for cw in [None, "balanced"]:
-    label = "class_weight なし" if cw is None else "class_weight=balanced"
+    label = "no class_weight" if cw is None else "class_weight=balanced"
     model = LogisticRegression(max_iter=1000, class_weight=cw)
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -1406,8 +1846,8 @@ plt.plot(recall, precision, label=f"AP = {ap:.3f}")
 # ベースライン（ランダム予測）: 少数クラスの割合に等しい水平線
 baseline = y_test.mean()
 plt.axhline(y=baseline, color="r", linestyle="--", label=f"Baseline (random): {baseline:.2%}")
-plt.xlabel("Recall（再現率）")
-plt.ylabel("Precision（適合率）")
+plt.xlabel("Recall")
+plt.ylabel("Precision")
 plt.title("Precision-Recall curve")
 plt.legend()
 plt.grid(True, alpha=0.3)
@@ -1438,6 +1878,77 @@ for threshold in [0.3, 0.5, 0.7]:
           f"F1={f1_score(y_test, y_pred_thresh):.3f}")
 ```
 
+## 7. 探索の手引き（q12 対応）
+
+q12 では「**Recall（見逃さない割合）が目標以上という条件で，Precision を最大にする**」設定を探索する．目的を**制約つきの最適化**として書く練習である．
+
+### 7-1. なぜ「見逃しを減らす」だけではだめか
+
+見逃しを減らすだけなら「全員を陽性と予測する」のが最善になってしまう（Precision は最悪）．現実の依頼は，`Recall ≥ 0.80 のとき Precision を最大にする` のように**制約つき**で書く．探索の物差し（目的関数）は次のように作る．
+
+```python
+RECALL_TARGET = 0.80
+def objective(prec, rec):
+    """Recall が目標を満たせば Precision，満たさなければ（負の）不足分"""
+    return prec if rec >= RECALL_TARGET else rec - RECALL_TARGET
+```
+
+制約を満たさない設定を「負の値」にしておくと，探索が制約違反の設定を選ばず，しかも「どれだけ足りないか」も比べられる．
+
+### 7-2. 閾値を動かすときは，学習し直さない（交差検証の予測 `cross_val_predict`）
+
+`class_weight` や `C` は学習が必要だが，**閾値は学習済みの確率を切り直すだけ**で試せる．訓練データ内で「各サンプルが検証側に回ったときの予測確率」を1回作っておけば，閾値を何通り試しても再学習は不要である．
+
+```python
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import precision_score, recall_score
+from sklearn.model_selection import cross_val_predict, StratifiedKFold, train_test_split
+
+X, y = make_classification(n_samples=3000, weights=[0.95, 0.05], class_sep=0.8, random_state=0)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=0)
+
+cv5 = StratifiedKFold(5, shuffle=True, random_state=0)
+proba = cross_val_predict(LogisticRegression(max_iter=1000), X_train, y_train, cv=cv5, method="predict_proba")[:, 1]
+for th in (0.5, 0.3, 0.2, 0.1):                  # 閾値だけ変える（再学習なし）
+    pred = (proba >= th).astype(int)
+    print(f"threshold={th}: precision={precision_score(y_train, pred, zero_division=0):.3f}  recall={recall_score(y_train, pred):.3f}")
+```
+
+### 7-3. `class_weight` の数式と閾値との関係
+
+- `class_weight="balanced"` は，クラス c の重みを `n / (クラス数 × n_c)` にする．2クラスでは，**少数クラスの重みが多数クラスの何倍か**は `n_多数 / n_少数`（陽性が 5% なら約 19 倍）
+- `class_weight={0: 1, 1: w}` と書けば，重みの倍率 `w` を自由に探索できる
+- ロジスティック回帰では，重みを増やすことは，おおむね**予測確率（対数オッズ）を全体にずらす**効果があり，**閾値を下げること**と似た働きをする．ただし完全に同じではない（重みは学習される係数自体も変える）．「どちらが良いか」は実験で確かめる
+
+### 7-4. 少数クラスの件数が少ないと，Recall は大きくぶれる
+
+陽性が 40 件しかなければ，Recall の標準誤差は `√(p(1-p)/n)` で見積もると次のようになる．
+
+```python
+import numpy as np
+n_pos, p = 40, 0.8
+print(f"Recall={p} の標準誤差 ≈ {np.sqrt(p * (1 - p) / n_pos):.3f}")   # 約 0.06
+```
+
+つまり探索時に「Recall 0.82」で制約を満たしていても，**別のデータ（テスト）では 0.75 に下がって制約を破る**ことが普通に起きる．目標ぎりぎりの設定を選ばず，**余裕をもたせる**（例：探索では Recall≥0.85 を狙う）のが実務の知恵である．
+
+### 7-5. 実験前に立てる予測の例（問いのみ）
+
+- 「何もしない」設定の Recall はいくつくらいか．Precision はどうか
+- `class_weight` を上げる方法と閾値を下げる方法で，同じ Recall のときの Precision はどちらが高いか
+- `C`（正則化の強さ）は結果に影響するか
+
+### 7-6. LLM 指示書に入れる知識（q12）
+
+| 項目 | 書くべき知識の例 |
+|---|---|
+| 目的 | 制約つきの目的関数の式（Recall 下限と Precision 最大） |
+| データ | 陽性の比率と件数，Recall のばらつきの大きさ |
+| 探索計画 | 重みと閾値を別々→組合せ．閾値は `cross_val_predict` で再学習なしに |
+| 落とし穴 | 全員陽性の自明解，Accuracy の罠，テストで閾値を調整するリーク，制約ぎりぎりの選択 |
+| 止めどき | 制約を満たす設定の中で Precision が頭打ち．テストで制約が破れたときは選び直さず余裕を見直す |
+
 ---
 
 ## つまずきやすいポイント（第5章）
@@ -1459,6 +1970,7 @@ for threshold in [0.3, 0.5, 0.7]:
 4. 過学習の診断と対処
 5. GridSearchCV と RandomizedSearchCV
 6. 交差検証の種類
+7. 探索の手引き（q13 対応）
 
 ---
 
@@ -1530,7 +2042,7 @@ plt.fill_between(train_sizes,
                  val_mean + val_std, alpha=0.2)
 plt.xlabel("Training set size")
 plt.ylabel("Accuracy")
-plt.title("Learning curve（過学習: 訓練と検証のギャップが大きい）")
+plt.title("Learning curve (overfitting: large train/validation gap)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -1567,9 +2079,9 @@ plt.plot(x_labels, val_mean, marker="o", label="CV score")
 plt.fill_between(range(len(x_labels)),
                  val_scores.mean(axis=1) - val_scores.std(axis=1),
                  val_scores.mean(axis=1) + val_scores.std(axis=1), alpha=0.2)
-plt.xlabel("max_depth（大きいほど複雑）")
+plt.xlabel("max_depth (larger = more complex)")
 plt.ylabel("Accuracy")
-plt.title("validation_curve（過学習が始まる max_depth を探す）")
+plt.title("validation_curve (find where overfitting starts)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -1689,6 +2201,80 @@ print(f"Stratified 5-fold CV: {scores.mean():.4f} ± {scores.std():.4f}")
 # ± が大きいほどスコアがデータ分割に依存している（不安定）
 ```
 
+## 7. 探索の手引き（q13 対応）
+
+q13 では決定木（`max_depth`・`min_samples_leaf`・`ccp_alpha`・`criterion`）を探索し，最後に `GridSearchCV` と比べる．
+
+### 7-1. 木の複雑さを制御する4つの手段
+
+| パラメータ | 働き |
+|---|---|
+| `max_depth` | 木の深さの上限．小さいほど単純．`None` は制限なし（実質的には十分大きい整数でも同じ） |
+| `min_samples_leaf` | 葉に必要な最小サンプル数．大きいほど細かい分岐ができず単純になる |
+| `ccp_alpha` | **コスト複雑度枝刈り**．大きいほど枝を刈って葉の数を減らす |
+| `criterion` | 分岐の良さの測り方（`gini` / `entropy`）．通常は大差ない |
+
+`ccp_alpha` の有効な範囲はデータ依存なので，`cost_complexity_pruning_path` で候補を出すと桁の見当がつく．
+
+```python
+from sklearn.datasets import load_breast_cancer
+from sklearn.tree import DecisionTreeClassifier
+
+X, y = load_breast_cancer(return_X_y=True)
+path = DecisionTreeClassifier(random_state=0).cost_complexity_pruning_path(X, y)
+print("ccp_alpha の候補（先頭 5 つと最後の 3 つ）:", path.ccp_alphas[:5].round(4), path.ccp_alphas[-3:].round(4))
+```
+
+### 7-2. gap で過学習を測る
+
+`gap = 訓練スコア - 検証スコア`．gap が大きい → 過学習．gap が小さいのに検証スコアも低い → 未学習．**検証スコアの山と gap の開き始めは同じ深さとは限らない**ので，両方を見る．
+
+### 7-3. 1標準偏差ルールの実装
+
+```python
+import numpy as np
+from sklearn.datasets import load_breast_cancer
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import cross_val_score, StratifiedKFold
+
+X, y = load_breast_cancer(return_X_y=True)
+cv5 = StratifiedKFold(5, shuffle=True, random_state=0)
+rows = []
+for depth in (1, 2, 3, 4, 5, 8):
+    tree = DecisionTreeClassifier(max_depth=depth, random_state=0)
+    s = cross_val_score(tree, X, y, cv=cv5)
+    rows.append((depth, s.mean(), s.std()))
+best = max(rows, key=lambda r: r[1])
+threshold = best[1] - best[2]                                   # 最良から標準偏差以内
+simplest = min((r for r in rows if r[1] >= threshold), key=lambda r: r[0])   # その中で最も浅い（単純な）もの
+print("CV 最良:", best[0], "／ 1標準偏差ルールで選ぶ:", simplest[0])
+```
+
+### 7-4. 手動探索と `GridSearchCV`
+
+| | 手動探索 | GridSearchCV |
+|---|---|---|
+| 長所 | 結果を見て次の一手を変えられる（粗→細）．仮説が残る | 網羅的．漏れがない．書くのが楽 |
+| 短所 | 人手がかかる | **全組合せ×分割数**の学習が必要（`24 設定 × 5 分割 = 120 回`）．軸が増えると爆発する |
+
+軸が多いときは `RandomizedSearchCV`（ランダムに抽出）が現実的である．**自動化しても，人が決めること**は残る：探索空間（何を・どの範囲で），評価指標，止めどき，リークの防止．これらが LLM への指示書に書く内容である．
+
+### 7-5. 実験前に立てる予測の例（問いのみ）
+
+- `max_depth` を上げていくと gap はどこから開き始めるか
+- `min_samples_leaf` と `max_depth` のどちらが過学習に効くか
+- 最良設定と「1標準偏差ルールで選ぶ設定」は，同じになるか
+
+### 7-6. LLM 指示書に入れる知識（q13）
+
+| 項目 | 書くべき知識の例 |
+|---|---|
+| 目的 | CV 正解率．gap も併せて監視 |
+| データ | 件数，`cv_std` の大きさ（決定木は分割でぶれやすい） |
+| 探索計画 | 深さ→葉の大きさ→枝刈りの順に．自動探索と手動探索の使い分け |
+| 落とし穴 | 訓練精度 1.0 を信じない，僅差を「最良」と断定する |
+| 止めどき | 1標準偏差ルールで単純なモデルを採用 |
+
 ---
 
 ## つまずきやすいポイント（第6章）
@@ -1715,6 +2301,7 @@ A: `np.linspace(0.1, 1.0, 10)` は「訓練データの 10%, 20%, ..., 100%」�
 4. MNIST の読み込みと前処理
 5. MNIST の可視化
 6. DataLoader の理解
+7. 探索の手引き（q14 対応）
 
 ---
 
@@ -1938,6 +2525,60 @@ print("labels[:5]:", labels[:5])            # → 先頭5件のラベル
 print("flatten後:", images.view(-1, 784).shape)   # → torch.Size([64, 784])
 ```
 
+## 7. 探索の手引き（q14 対応）
+
+q14 の探索では，MNIST の**前処理（transform）と学習設定**を，軽い学習を何度も回して比べる．
+
+### 7-1. 検証データの作り方（訓練データから取り分ける）
+
+MNIST には訓練 60000 枚とテスト 10000 枚がある．**設定を選ぶための検証データは，訓練データの中から取り分ける**（テストは最後の1回のために取っておく）．
+
+```python
+# 概念コード（MNIST のダウンロードが必要）
+from torch.utils.data import Subset
+# train_ds = datasets.MNIST(..., train=True, transform=...)
+# train_part = Subset(train_ds, range(0, 8000))          # 学習に使う 8000 枚
+# val_part   = Subset(train_ds, range(50000, 52000))     # 検証に使う 2000 枚（学習と重ならない範囲）
+```
+
+`torch.utils.data.random_split` でランダムに分ける方法もある．重要なのは，**学習と検証が重ならないこと**である．
+
+### 7-2. 訓練用と評価用で transform を分ける
+
+- **データ拡張（回転・消去など）は訓練データだけ**にかける．検証・テスト画像に拡張をかけると，評価がぶれて比較にならない
+- **正規化（Normalize）は訓練と評価で同じもの**を使う．学習時と違う統計で評価すると，モデルには「別の分布」に見える
+
+### 7-3. 乱数（シード）でスコアがぶれる
+
+ニューラルネットの結果は，初期値・ミニバッチの順序・拡張の乱数で毎回変わる．**同じ設定でも `torch.manual_seed` を変えると，正解率が数ポイント動くことがある**（学習が短いほど大きい）．
+
+- 僅差の比較は，**複数シードで繰り返して**平均・ばらつきで判断する
+- 「シード違いの差」を測っておけば，「設定違いの差」がそれより大きいかを判断できる
+
+### 7-4. 学習率のスケール感（SGD）
+
+SGD の学習率は，Adam より大きめの値が必要になることが多い（`0.001` は SGD には小さすぎることがある）．**桁で広く振って**，遅すぎ・不安定すぎの両端を見つける．学習率を上げるときは，**エポック数と組み合わせて**考える（小さい lr は多くのエポックが要る）．
+
+### 7-5. 探索の予算
+
+1 試行の時間 × 試行回数を見積もる．粗探索は少ない枚数（例：数千枚）・少ないエポックで回し，良さそうな範囲に絞ってから増やす．
+
+### 7-6. 実験前に立てる予測の例（問いのみ）
+
+- 正規化あり／なしで，学習の速さ（少ないエポックでの精度）は変わるか
+- 不適切な transform（例：左右反転）は，実際に精度を下げるか．それはどのくらい
+- SGD で最良の学習率の桁は，0.001 か 0.01 か 0.1 か
+
+### 7-7. LLM 指示書に入れる知識（q14）
+
+| 項目 | 書くべき知識の例 |
+|---|---|
+| 目的 | 検証精度（訓練データ内の別枚数）．テストは最後に1回 |
+| データ | 画像サイズ・枚数・クラス数，シード違いのばらつきの数値 |
+| 探索計画 | transform を同条件で比較 → 学習率を桁で → 僅差は別シード |
+| 落とし穴 | 評価画像に拡張をかける，シード1つで判断する，学習と検証が重なる |
+| 止めどき | 計算予算の中で，粗探索から本学習へ切り替える基準 |
+
 ---
 
 ## つまずきやすいポイント（第7章）
@@ -1971,6 +2612,7 @@ A: Colab の環境（特に forking の制限）で `num_workers > 0` だとデ�
 7. 学習ループ
 8. Dropout と Batch Normalization
 9. ハイパーパラメータの感度
+10. 探索の手引き（q15 対応）
 
 ---
 
@@ -2041,7 +2683,7 @@ plt.axhline(0, color="k", linewidth=0.5)
 plt.axvline(0, color="k", linewidth=0.5)
 plt.xlabel("x")
 plt.ylabel("f(x)")
-plt.title("活性化関数の比較")
+plt.title("Comparison of activation functions")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -2361,6 +3003,61 @@ with torch.no_grad():   # 推論時は勾配計算が不要 → メモリ節約
 print(f"テスト正解率: {correct / total:.4f}")     # → SimpleMLP なら 0.97 付近
 ```
 
+## 10. 探索の手引き（q15 対応）
+
+q15 では，全結合ネットワーク（MLP）の `lr`・`hidden`・`epochs`・`depth` を探索する．
+
+### 10-1. 損失曲線から探索の次の一手を決める
+
+学習中の損失（loss）の推移は，設定の良し悪しを教えてくれる．
+
+| 損失曲線の形 | 意味 | 次の一手 |
+|---|---|---|
+| ほぼ横ばい | 学習が進んでいない | `lr` を上げる（小さすぎる），または勾配消失を疑う（深すぎ・活性化） |
+| 大きく振動する | `lr` が大きすぎる | `lr` を下げる |
+| 発散・NaN | `lr` が大きすぎる（さらに極端） | `lr` を桁で下げる |
+| 順調に減少 | 良い | エポックや `hidden` を調整．検証精度と併せて過学習を見る |
+
+### 10-2. 学習率の探索
+
+Adam の学習率は，桁で 1e-5〜1e-1 を振る．**大きすぎても小さすぎても失敗する**．大きすぎると更新が谷を飛び越えて損失が振動・発散し，小さすぎると1ステップの移動が小さく，同じエポック数では損失がほとんど下がらない．
+
+### 10-3. `hidden`・`depth`・`epochs` の関係
+
+- `hidden`（隠れユニット数）を増やす → 表現力が増える（パラメータも計算時間も増える）
+- `depth`（隠れ層の数）を増やす → さらに複雑に．ただし**活性化関数によっては勾配が層を遡るうちに小さくなり，学習が進まなくなる**（勾配消失，q15 問題4）
+- `epochs` を増やす → 訓練損失は下がり続けるが，**検証精度が頭打ち・低下**したら過学習の始まり
+
+### 10-4. 探索コストの見積り
+
+```python
+sec_per_trial = 12          # 1試行の所要時間（秒）: 記録帳の sec 列から
+n_trials = 20
+print(f"探索全体の見積り = {sec_per_trial * n_trials / 60:.1f} 分")
+```
+
+見積りが予算を超えるなら，**粗探索は少ないデータ・少ないエポック**で回して有望な範囲を絞り，**絞った設定だけ本番の条件で学び直す**．
+
+### 10-5. 乱数のばらつき
+
+MLP でもシード違いで数ポイント（学習が短いほど大きく）動くことがある．**0.003 程度の差は「差がある」と言い切れない**．僅差の設定は別シードで確かめる．
+
+### 10-6. 実験前に立てる予測の例（問いのみ）
+
+- 最良の学習率は，Adam で 0.0001 / 0.001 / 0.01 のどの桁か．なぜそう考えるか
+- `hidden` を 16 → 512 と増やすと，検証精度はどこで頭打ちになるか
+- `depth` を 1 → 4 に増やすと，ReLU と Sigmoid でどう違うか
+
+### 10-7. LLM 指示書に入れる知識（q15）
+
+| 項目 | 書くべき知識の例 |
+|---|---|
+| 目的 | 検証精度（訓練データ内の別 2000 枚）．テストは最後に1回 |
+| データ | 入力次元 784・クラス数 10・枚数，別シードでの差の数値，1試行の時間 |
+| 探索計画 | 学習率を桁で → 有望な lr で `hidden`・`epochs`・`depth` |
+| 落とし穴 | lr の桁の外し方，損失の横ばい／振動／NaN の見抜き方，シード1つで判断 |
+| 止めどき | 計算予算の中で粗探索から本学習へ切り替える基準 |
+
 ---
 
 ## つまずきやすいポイント（第8章）
@@ -2395,6 +3092,7 @@ A: `outputs.shape = (N, 10)` のとき，`dim=1`（クラス方向）で最大�
 7. SimpleCNN の実装
 8. 混同行列とモデル保存
 9. Distribution Shift と手書き推論（q17）
+10. 探索の手引き（q16・q17 対応）
 
 ---
 
@@ -2798,9 +3496,9 @@ cm = confusion_matrix(all_labels, all_preds)
 plt.figure(figsize=(10, 8))
 sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
             xticklabels=range(10), yticklabels=range(10))
-plt.xlabel("予測クラス")
-plt.ylabel("正解クラス")
-plt.title("Confusion matrix (MNIST 10クラス)")
+plt.xlabel("Predicted class")
+plt.ylabel("True class")
+plt.title("Confusion matrix (MNIST, 10 classes)")
 plt.show()
 
 # 最も混同されるペアを探す（対角を除いた最大値）
@@ -2927,6 +3625,93 @@ print(f"予測: {pred_class}（信頼度: {confidence:.1%}）")
    - **データ拡張（回転・ノイズ）**: 様々な位置・向きの文字を学習させて Distribution Shift に強くする
    - **Dropout の追加**: 過学習を防ぎ汎化性能を向上
    - **BatchNorm の追加**: 学習を安定させより深いネットで高精度化
+
+## 10. 探索の手引き（q16・q17 対応）
+
+### A. q16：3モデルの比較
+
+- `LinearNet`（線形）・`DeepMLP`・`SimpleCNN` を，**同じ条件・同じ検証データ**で比べる．探索は「モデル選択」と「そのモデルの設定」の二段構えになる
+- モデルの**パラメータ数と所要時間**（コスト）も記録する．精度が僅かに上がるだけのために，コストが何倍にもなっていないかを見る．**精度とコストの兼ね合い**が実務の判断である
+- 「複雑なモデルほど良い」とは限らない．データ量・エポック数・学習率次第で順位は入れ替わりうる．**予想と違ったときは，学習率が合っていないか，エポックが足りないか**を疑う
+- `gap = 訓練精度 - 検証精度` で，過学習か未学習かを判断する
+
+### B. q17：現場の入力を，学習時の形に戻す
+
+学習したモデルは，**学習時の入力の形式**（黒地に白い数字・28×28・数字が中央・線の太さ・画素値の範囲）を暗黙の前提にしている．現場の入力がこの形式とずれていると，精度は大きく落ちる（分布シフト）．これを**前処理で学習時の形に戻す**のが q17 の探索である．
+
+#### B-1. まず「学習時の入力仕様」を書き出す
+
+前処理を設計する前に，モデルが何を仮定しているかを箇条書きにする．「白地に黒線か，黒地に白線か」「画素値は 0〜1 か」「数字は中央か」「線の太さはどのくらいか」——この仕様が，指示書の「データの事実」になる．
+
+#### B-2. 色の反転・二値化
+
+- 反転：`x = 1.0 - x`．**向きが逆だと精度は大きく崩れる**（学習時と反転した入力になる）
+- 二値化：`x = (x > threshold).float()`．ノイズを消せるが，**閾値が高すぎると細い線が消え，低すぎるとノイズが残る**．中間に山があるかを探索で確かめる
+
+#### B-3. 線の太さを変える（最大値／最小値プーリング）
+
+`max_pool2d` は明るい画素を周囲に広げるので線が**太く**なる（膨張）．逆に，符号を反転してから `max_pool2d` して戻すと，暗い側が広がって線が**細く**なる（収縮）．
+
+```python
+import torch
+import torch.nn.functional as F
+
+img = torch.zeros(1, 1, 7, 7)
+img[0, 0, 3, 1:6] = 1.0                        # 細い横線
+thick = F.max_pool2d(img, kernel_size=3, stride=1, padding=1)          # 太くする
+thin = -F.max_pool2d(-thick, kernel_size=3, stride=1, padding=1)       # 細くする
+print("元の線の画素数 :", int(img.sum()))
+print("太くした画素数 :", int(thick.sum()))
+print("細くした画素数 :", int(thin.sum()))
+```
+
+カーネルを大きくしすぎると，**必要な線まで消えてしまう**．強さも探索の軸である．
+
+#### B-4. 重心を中央に寄せる
+
+数字の位置ずれは，**画素値の重み付き平均位置（重心）**を求め，画像の中心に平行移動して直せる．
+
+```python
+import torch
+
+def recenter_one(img):                      # img: (28, 28)
+    ys = torch.arange(28, dtype=torch.float32).view(28, 1)
+    xs = torch.arange(28, dtype=torch.float32).view(1, 28)
+    m = img.sum() + 1e-6
+    dy = 14 - int(round(((img * ys).sum() / m).item()))   # 重心の y を 14 に
+    dx = 14 - int(round(((img * xs).sum() / m).item()))   # 重心の x を 14 に
+    return torch.roll(img, shifts=(dy, dx), dims=(0, 1))
+
+img = torch.zeros(28, 28)
+img[20:26, 20:26] = 1.0                     # 右下に寄った四角
+moved = recenter_one(img)
+ys, xs = torch.nonzero(moved, as_tuple=True)
+print("移動後の重心 y, x =", ys.float().mean().item(), xs.float().mean().item())   # 14 付近
+```
+
+#### B-5. 効果の分解（一つずつ足して測る）
+
+前処理が複数あるときは，**何もしない基準 → 1つ足す → もう1つ足す**の順に試して，「どれがどれだけ回復させたか」を数値にする．最初から全部入れると，どれが効いたか，どれが邪魔をしているか分からない．**基準（何もしない）を必ず試行に含める**こと．
+
+#### B-6. 開発用と holdout に分ける
+
+現場入力を模した画像を「探索に使う開発用」と「最後に1回だけ見る holdout」に分ける．holdout を見て設定を変えるのはリークである．
+
+### C. 実験前に立てる予測の例（問いのみ）
+
+- q16：`SimpleCNN` は `DeepMLP` より必ず良いか．差が偶然の範囲でないと言えるか
+- q17：何もしない場合の精度はどのくらいか．どの前処理が最も回復させると思うか
+- q17：二値化の閾値は，高すぎるとどうなるか．低すぎるとどうなるか
+
+### D. LLM 指示書に入れる知識（q16・q17）
+
+| 項目 | q16 | q17 |
+|---|---|---|
+| 目的 | 検証精度．コスト（パラメータ数・時間）も | 開発用の正解率．holdout は最後に1回 |
+| データ | 画像形状・枚数・クラス数・シードのばらつき | **学習時の入力仕様**と，現場入力との違い |
+| 探索計画 | モデル → lr（桁）→ epochs・hidden・batch | 基準 → 1つずつ足す → 強さ・閾値を調整 |
+| 落とし穴 | テストの使い回し，複雑さ＝精度の思い込み | 反転の要否の間違い，閾値の上げすぎ／下げすぎ，holdout を見て選ぶ |
+| 止めどき | 精度とコストの兼ね合い | 開発用が頭打ち．現場データが変わったら再点検 |
 
 ---
 
