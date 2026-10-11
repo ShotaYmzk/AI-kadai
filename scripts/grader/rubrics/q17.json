@@ -1,0 +1,5 @@
+{
+  "title": "第17回 総合課題 — 手書き数字認識",
+  "weights": {"1": 20, "2": 20, "2'-0": 5, "2'": 30, "3": 25},
+  "checks": {"2'": {"min_trials": 15, "must_include": ["False", "True"], "final_test": true}}
+}

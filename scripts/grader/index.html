@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>採点UI</title>
+<style>
+:root{--bg:#FDFDFC;--ink:#111;--sub:rgba(17,17,17,.55);--line:rgba(17,17,17,.15);--acc:#2563EB;--ok:#059669;--warn:#B45309;--ng:#DC2626;--soft:#F5F5F3;--ref:#EFF4FF;--stu:#FFFBEB;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}
+::selection{background:var(--ink);color:#fff}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.65 Inter,"Noto Sans JP",-apple-system,"Hiragino Sans",sans-serif;height:100vh;display:grid;grid-template-columns:290px 1fr;grid-template-rows:auto 1fr}
+.mast{grid-column:1/3;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:18px 24px 12px;border-bottom:4px solid var(--ink)}
+.mast h1{margin:0;font-size:34px;font-weight:900;letter-spacing:-.03em;line-height:1}
+.mast .k{font:700 10px var(--mono);letter-spacing:.18em;text-transform:uppercase;opacity:.5;margin-bottom:6px}
+.mast .st{font:700 11px var(--mono);letter-spacing:.1em;text-align:right;opacity:.7}
+aside{border-right:2px solid var(--ink);display:flex;flex-direction:column;min-height:0}
+aside header{padding:14px;border-bottom:2px solid var(--ink)}
+aside input{width:100%;padding:8px 10px;border:1px solid var(--ink);border-radius:0;background:#fff;color:var(--ink);font:inherit;outline:0}
+aside input:focus{box-shadow:3px 3px 0 var(--acc)}
+#list{overflow:auto;flex:1}
+.sitem{display:flex;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-weight:600}
+.sitem:hover{background:var(--soft)}
+.sitem.on{background:var(--ink);color:#fff}
+.sitem .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font:700 10px var(--mono);letter-spacing:.08em;padding:1px 7px;border:1px solid currentColor;opacity:.6;white-space:nowrap;align-self:center}
+.tag.done{color:var(--ok);opacity:1}.tag.part{color:var(--warn);opacity:1}
+.sitem.on .tag{color:#fff;opacity:.9}
+aside footer{padding:14px;border-top:2px solid var(--ink);display:flex;gap:8px;flex-wrap:wrap}
+button{font:700 11px var(--mono);letter-spacing:.08em;border:2px solid var(--ink);background:#fff;color:var(--ink);padding:6px 12px;border-radius:0;cursor:pointer;transition:.12s}
+button:hover{background:var(--ink);color:#fff}
+button.pri{box-shadow:4px 4px 0 rgba(17,17,17,.2)}
+button:active{transform:translateY(2px);box-shadow:none}
+main{overflow:auto;padding:0 32px 100px;min-width:0}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:16px 0 12px;border-bottom:2px solid var(--ink);display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+.top h2{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em}
+.big{font-size:44px;font-weight:900;letter-spacing:-.04em;line-height:1}.big small{font:700 13px var(--mono);opacity:.45;letter-spacing:0}
+.pill{font:700 10px var(--mono);letter-spacing:.1em;border:1px solid var(--ink);padding:1px 8px}
+.sec{border:2px solid var(--ink);margin:28px 0;background:#fff;box-shadow:6px 6px 0 rgba(17,17,17,.12)}
+.sec>h3{margin:0;padding:12px 16px;font-size:15px;font-weight:900;display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:2px solid var(--ink);cursor:pointer;background:var(--soft)}
+.sec>h3 .sc{font:700 14px var(--mono);background:var(--ink);color:#fff;padding:1px 10px}
+.body{padding:6px 18px 16px}
+.chk{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.chk span{font:700 11px var(--mono);padding:1px 8px;border:1px solid}
+.chk .ok{color:var(--ok);background:#ECFDF5}.chk .ng{color:var(--ng);background:#FEF2F2}
+details{margin:10px 0}summary{cursor:pointer;font:700 11px var(--mono);letter-spacing:.08em;opacity:.6}
+pre{margin:6px 0;padding:10px 12px;background:var(--soft);border:1px solid var(--line);overflow:auto;font:12px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
+.out img{max-width:100%}
+.item{border-top:1px solid var(--line);padding:14px 0}
+.item:first-of-type{border-top:0}
+.ih{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.lab{font-weight:800}.lab code{font:400 11px var(--mono);opacity:.45;margin-left:8px}
+.marks{display:flex;gap:0;flex:none}
+.marks button{width:38px;padding:3px 0;font-size:14px;margin-left:-2px}
+.marks button.on[data-m="1"]{background:var(--ok);border-color:var(--ink);color:#fff}
+.marks button.on[data-m="0.5"]{background:#F59E0B;color:var(--ink)}
+.marks button.on[data-m="0"]{background:var(--ng);color:#fff}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+.cols.one{grid-template-columns:1fr}
+@media(max-width:1100px){.cols{grid-template-columns:1fr}}
+.box{padding:8px 12px;white-space:pre-wrap;word-break:break-word;min-height:38px;border:1px solid var(--ink)}
+.box.stu{background:var(--stu)}.box.ref{background:var(--ref);border-color:var(--line);color:rgba(17,17,17,.7)}
+.box h6{display:block;margin:0 0 3px;font:700 9px var(--mono);letter-spacing:.18em;text-transform:uppercase;opacity:.5}
+.box.ref h6{color:var(--acc);opacity:1}
+.empty{color:var(--ng);font-weight:800}
+.dup{color:var(--warn);font:700 11px var(--mono);margin-top:4px}
+.memo{width:100%;margin-top:8px;padding:6px 10px;border:0;border-bottom:1px dashed var(--ink);background:transparent;color:var(--ink);font:inherit;outline:0}
+.memo:focus{background:var(--soft);border-bottom-style:solid}
+table.ex{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+table.ex td{border-top:1px solid var(--line);padding:4px 8px;vertical-align:top}
+table.ex td.c{font-family:var(--mono);width:34%;opacity:.6}
+table.ex tr.no td.s{color:var(--ng);font-weight:700}
+.foot{border:2px solid var(--ink);padding:16px 18px;margin-top:28px;background:#fff;box-shadow:6px 6px 0 rgba(17,17,17,.12)}
+.foot textarea{width:100%;min-height:80px;padding:8px 10px;border:1px solid var(--ink);border-radius:0;background:var(--bg);color:var(--ink);font:inherit}
+.foot input[type=number]{border:1px solid var(--ink);padding:3px 6px;font:700 13px var(--mono)}
+.row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0}
+input[type=checkbox]{accent-color:var(--ink)}
+#toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:#fff;font:700 11px var(--mono);letter-spacing:.1em;padding:8px 14px;opacity:0;transition:.2s;pointer-events:none}
+#toast.on{opacity:1}
+.hint{color:var(--sub);font:12px var(--mono)}
+.emptyview{margin:80px auto;max-width:560px;color:var(--sub);text-align:center;border:2px dashed var(--line);padding:40px}
+
+.mast .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select{font:700 13px var(--mono);border:2px solid var(--ink);background:#fff;color:var(--ink);padding:6px 8px;border-radius:0;width:100%}
+.weekbox{padding:14px;border-bottom:2px solid var(--ink)}
+.weekbox label{display:block;font:700 9px var(--mono);letter-spacing:.18em;text-transform:uppercase;opacity:.5;margin-bottom:4px}
+.drop{margin:10px 14px;border:2px dashed var(--ink);padding:12px;text-align:center;font:700 11px var(--mono);letter-spacing:.06em;cursor:pointer}
+.drop.over,.drop:hover{background:var(--ref);border-color:var(--acc);color:var(--acc)}
+.drop small{display:block;font-weight:400;opacity:.55;margin-top:2px}
+.ai{margin-top:8px;padding:6px 10px;border-left:4px solid #7C3AED;background:#F5F3FF;font-size:13px}
+.ai b{font:700 9px var(--mono);letter-spacing:.18em;color:#7C3AED;display:block}
+.srcb{font:700 9px var(--mono);letter-spacing:.1em;padding:0 5px;margin-right:6px;border:1px solid #7C3AED;color:#7C3AED;vertical-align:middle}
+button.ai-b{border-color:#7C3AED;color:#7C3AED}button.ai-b:hover{background:#7C3AED;color:#fff}
+button:disabled{opacity:.35;cursor:wait}
+dialog{border:2px solid var(--ink);border-radius:0;padding:24px;width:min(520px,92vw);max-height:90vh;overflow:auto;box-shadow:8px 8px 0 rgba(17,17,17,.2);background:var(--bg);color:var(--ink)}
+dialog::backdrop{background:rgba(17,17,17,.4)}
+dialog h2{margin:0 0 12px;font-weight:900}
+dialog input{width:100%;padding:8px 10px;border:1px solid var(--ink);border-radius:0;font:13px var(--mono);margin:4px 0 12px}
+dialog label{font:700 10px var(--mono);letter-spacing:.12em}
+#prog2{height:4px;background:var(--line);width:100%}#prog2 i{display:block;height:100%;background:#7C3AED;width:0;transition:.3s}
+.modewarn{border:2px solid var(--warn);background:#FFF7ED;color:#7C2D12;padding:10px 14px;margin:16px 0;font-weight:800}
+.helpdlg{width:min(820px,94vw)}.helpdlg h3{border-bottom:1px solid var(--ink);padding-bottom:4px;margin-top:24px}.helpdlg ol,.helpdlg ul{padding-left:22px}.helpdlg code{background:var(--soft);padding:1px 4px}
+.providers{display:grid;gap:8px}.provider{border:1px solid var(--ink);padding:10px;display:grid;grid-template-columns:110px 100px 1fr auto;gap:8px;align-items:center}.provider strong{font-family:var(--mono)}
+.badge{font:700 10px var(--mono);border:1px solid;padding:2px 7px;text-align:center}.badge.available{color:var(--ok);background:#ECFDF5}.badge.unavailable{color:var(--ng);background:#FEF2F2}.badge.unknown{color:var(--warn);background:#FFF7ED}
+.testresult{font:11px var(--mono);word-break:break-word}.helpnote{border-left:4px solid var(--acc);background:var(--ref);padding:8px 12px}.dialog-actions{position:sticky;bottom:-24px;background:var(--bg);padding:12px 0 0}
+@media(max-width:700px){body{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}.mast{grid-column:1}.provider{grid-template-columns:1fr 1fr}.provider .testresult{grid-column:1/3}aside{border-right:0;border-bottom:2px solid var(--ink);max-height:48vh}main{padding:0 14px 80px}}
+</style>
+</head>
+<body>
+<div class="mast">
+  <div><div class="k">Grading Console</div><h1 id="ttl">採点UI</h1></div>
+  <div class="tools"><div class="st" id="prog"></div><button id="help">使い方</button></div>
+</div>
+<aside>
+  <div class="weekbox"><label for="week">回を選択</label><select id="week"></select></div>
+  <div class="drop" id="drop">＋ 提出物(.ipynb)を追加<small>クリックで選択 / ここにドラッグ&ドロップ（複数可）</small></div>
+  <input type="file" id="file" accept=".ipynb" multiple hidden>
+  <header><input id="q" placeholder="名前で絞り込み"></header>
+  <div id="list"></div>
+  <div class="weekbox" style="border-top:2px solid var(--ink);border-bottom:0"><label for="modelsel">AIモデル（採点に使用）</label><select id="modelsel"></select></div>
+  <footer style="border-top:0;padding-top:0">
+    <button id="reload">再読込</button>
+    <button id="csv" class="pri">CSV出力</button>
+    <button id="aiall" class="ai-b">全員をAI採点</button>
+    <button id="cfg">AI設定</button>
+    <span class="hint" style="width:100%">j / k：前後の提出へ</span>
+  </footer>
+</aside>
+<main id="main"></main>
+<dialog id="dlg">
+  <h2>AI 設定</h2>
+  <label>プロバイダ</label>
+  <select id="cfgprovider"><option value="claude">Claude Code</option><option value="codex">OpenAI Codex</option><option value="gemini">Gemini API</option></select>
+  <label>モデル名（空欄はプロバイダの既定）</label>
+  <input id="model" placeholder="モデル名を自由入力">
+  <div class="hint" id="modelhint" style="margin-bottom:12px"></div>
+  <label>Gemini API キー <span id="keyst" style="opacity:.6"></span></label>
+  <input id="key" type="password" placeholder="空欄のままなら変更しません" autocomplete="off">
+  <label>毎分リクエスト上限（rpm）</label>
+  <input id="rpm" type="number" min="1" max="1000" value="12">
+  <div class="hint" style="margin-bottom:12px">選択・モデル・rpm と Gemini キーはこのPCの <code>scripts/grader/.settings.json</code> に保存（権限600・git管理外）。環境変数 GEMINI_API_KEY でも可。採点内容は選択したAIへ送信されます。</div>
+  <div class="row"><button class="pri" id="savecfg">保存</button><button id="closecfg">閉じる</button></div>
+</dialog>
+<dialog id="helpdlg" class="helpdlg">
+  <h2>採点 UI の使い方</h2>
+  <div class="helpnote"><b>全体の流れ：</b> Classroom から提出ノートをダウンロード → <code>提出物/第N回/</code> に置く（または左の追加欄へドロップ）→ 回を選ぶ → 提出を開いて手動または AI 採点。</div>
+  <h3>起動</h3>
+  <p><code>python3 scripts/grader/server.py</code> をリポジトリ直下で実行し、<code>http://127.0.0.1:8765</code> を開きます。別ポートは <code>--port 8799</code>、自動で開くには <code>--open</code>。Python 3 だけで動き、pip の追加インストールは不要です。</p>
+  <h3>AI の準備と現在の状態</h3>
+  <div class="providers">
+    <div class="provider"><strong>Claude Code</strong><span class="badge unknown" id="st-claude">確認中</span><span class="testresult" id="msg-claude"></span><button data-test="claude">接続テスト</button></div>
+    <div class="provider"><strong>Codex</strong><span class="badge unknown" id="st-codex">確認中</span><span class="testresult" id="msg-codex"></span><button data-test="codex">接続テスト</button></div>
+    <div class="provider"><strong>Gemini</strong><span class="badge unknown" id="st-gemini">確認中</span><span class="testresult" id="msg-gemini"></span><button data-test="gemini">接続テスト</button></div>
+  </div>
+  <ul>
+    <li><b>Claude Code：</b> 公式手順でインストールし、ターミナルで <code>claude</code> を一度起動してログインします。</li>
+    <li><b>Codex：</b> 公式手順（例 <code>npm i -g @openai/codex</code>）でインストールし、<code>codex login</code> で ChatGPT アカウントまたは API キーを使ってログインします。</li>
+    <li><b>Gemini：</b> Google AI Studio で API キーを作り「AI設定」に貼るか、<code>GEMINI_API_KEY</code> を設定します。無料枠には毎分・毎日の上限があり、rpm は呼び出し間隔を抑える値です（例 12 = 毎分最大12回）。</li>
+  </ul>
+  <h3>保存と個人情報</h3>
+  <p>結果は <code>提出物/第N回/_採点/grades.json</code> に自動保存されます。提出ノートと採点結果は個人情報を含むため、Git に追加・commit・push しないでください。</p>
+  <h3>よくあるエラー</h3>
+  <ul>
+    <li><b>モデル不可：</b> アカウントで使えないモデルです。Codex は「Codex の既定」に戻してください。<code>~/.codex/config.toml</code> の model が原因になる場合もあります。</li>
+    <li><b>API 上限：</b> Gemini の rpm を下げるか、毎日枠の回復を待ちます。</li>
+    <li><b>タイムアウト：</b> 一時的な混雑や大きな答案が原因です。再試行するか軽いモデルを選びます。</li>
+    <li><b>ノートが読めない：</b> JSON として壊れていない <code>.ipynb</code> か、正しい回に置いたか確認します。</li>
+    <li><b>解答例なし：</b> q1〜q7 などは問題文・答案・実行結果だけで AI が判断します。必ず人が結果を確認してください。</li>
+  </ul>
+  <div class="row dialog-actions"><button class="pri" id="closehelp">閉じる</button><button id="openconfig">AI設定を開く</button></div>
+</dialog>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const h=(t,a={},...kids)=>{const e=document.createElement(t);for(const[k,v]of Object.entries(a)){if(k==='class')e.className=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(v!==false&&v!=null)e.setAttribute(k,v===true?'':v)}for(const c of kids.flat())if(c!=null)e.append(c.nodeType?c:document.createTextNode(c));return e};
+let week=null,students=[],meta=null,cur=null,data=null,grade=null,saveT=null,showRef=true,busy=false;
+const W=(a,sid,extra='')=>`/api/w/${week}/${a}?sid=${encodeURIComponent(sid||'')}${extra}`;
+async function api(p,opt){const r=await fetch(p,opt);const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});
+function toast(m,ms=1400){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),ms)}
+
+// ---------- weeks
+async function init(){
+  const{weeks}=await api('/api/weeks');
+  const sel=$('#week');weeks.forEach(w=>sel.append(h('option',{value:w},`第${w}回`)));
+  let w=+localStorage.getItem('week');if(!weeks.includes(w))w=weeks.includes(9)?9:weeks[0];
+  sel.value=w;sel.onchange=()=>setWeek(+sel.value);
+  await setWeek(w);
+}
+async function setWeek(w){
+  week=w;localStorage.setItem('week',w);cur=null;data=null;
+  await loadList();
+  showRef=!!meta.has_reference;
+  const kids=[];if(!meta.has_reference)kids.push(h('div',{class:'modewarn'},'解答例がないため AI の判断のみで採点しています。必ず人が結果を確認してください。'));
+  kids.push(h('div',{class:'emptyview'},'左の一覧から提出を選んでください。',h('br'),`提出物は「＋ 提出物を追加」から第${w}回に取り込めます。`));$('#main').replaceChildren(...kids);
+}
+async function loadList(){
+  meta=await api(`/api/w/${week}/meta`);$('#ttl').textContent=meta.title+' 採点';
+  students=await api(`/api/w/${week}/students`);renderList();
+}
+function renderList(){
+  const q=$('#q').value.trim().toLowerCase(),box=$('#list');box.replaceChildren();
+  const done=students.filter(s=>s.graded).length;
+  if(!students.length)box.append(h('div',{class:'hint',style:'padding:14px'},'まだ提出物がありません'));
+  for(const s of students){
+    if(q&&!s.name.toLowerCase().includes(q))continue;
+    const tag=s.error?h('span',{class:'tag'},'読込不可'):s.graded?h('span',{class:'tag done'},s.total+'点'):s.started?h('span',{class:'tag part'},(s.ai?'AI ':s.ai_partial?'AI一部 ':'')+s.total+'点'):h('span',{class:'tag'},'未');
+    box.append(h('div',{class:'sitem'+(s.id===cur?' on':''),onclick:()=>open(s.id)},h('span',{class:'nm',title:s.id},s.name),tag));
+  }
+  $('#prog').textContent=`GRADED ${done} / ${students.length}`;
+}
+$('#q').addEventListener('input',renderList);
+$('#reload').onclick=async()=>{await loadList();if(cur)open(cur,true);toast('再読込しました')};
+$('#csv').onclick=()=>location.href=`/api/w/${week}/export`;
+document.addEventListener('keydown',e=>{
+  if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
+  const i=students.findIndex(s=>s.id===cur);
+  if(e.key==='j'&&i<students.length-1)open(students[i+1].id);
+  if(e.key==='k'&&i>0)open(students[i-1].id);
+});
+
+// ---------- upload
+const drop=$('#drop'),fileIn=$('#file');
+drop.onclick=()=>fileIn.click();
+fileIn.onchange=()=>{upload([...fileIn.files]);fileIn.value=''};
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};
+drop.ondragleave=()=>drop.classList.remove('over');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');upload([...e.dataTransfer.files])};
+async function upload(files){
+  files=files.filter(f=>f.name.endsWith('.ipynb'));if(!files.length)return toast('.ipynb を選んでください');
+  let ok=0,rep=0,errs=[];
+  for(const f of files){
+    try{const r=await post(`/api/w/${week}/upload`,{name:f.name,content:await f.text()});ok++;if(r.replaced)rep++}
+    catch(e){errs.push(e.message)}
+  }
+  await loadList();
+  toast(`第${week}回に ${ok} 件取り込み`+(rep?`（${rep} 件は再提出で上書き）`:'')+(errs.length?`／失敗: ${errs.join(' ')}`:''),4000);
+}
+
+// ---------- settings
+const PROVIDERS={
+  claude:{label:'Claude Code',models:[['sonnet','Claude Sonnet'],['haiku','Claude Haiku']]},
+  codex:{label:'OpenAI Codex',models:[['','Codex の既定（推奨）'],['gpt-6-astra','gpt-6-astra（既定候補）'],['gpt-5.6-sol','gpt-5.6-sol'],['gpt-5.6-terra','gpt-5.6-terra'],['gpt-5.6-luna','gpt-5.6-luna']]},
+  gemini:{label:'Gemini API',models:[['gemini-3.5-flash-lite','3.5 Flash-Lite（既定）'],['gemini-3.1-flash-lite','3.1 Flash-Lite'],['gemini-3.5-flash','3.5 Flash'],['gemini-3.8-flash','3.8 Flash'],['gemini-3.1-pro-preview','3.1 Pro preview']]}
+};
+let aiSettings=null;
+function modelHint(){const p=$('#cfgprovider').value;$('#modelhint').textContent=p==='codex'?'空欄は Codex の既定。アカウントにより候補モデルが使えない場合があります。':p==='claude'?'例: sonnet / haiku':'例: gemini-3.5-flash-lite'}
+async function openCfg(){const s=await api('/api/settings');$('#cfgprovider').value=s.provider;$('#model').value=s.model;$('#rpm').value=s.rpm;$('#key').value='';modelHint();
+  $('#keyst').textContent=s.has_key?`（設定済み ${s.key_hint} / ${s.key_source==='env'?'環境変数':'ファイル'}）`:'（未設定）';$('#dlg').showModal()}
+$('#cfg').onclick=openCfg;$('#cfgprovider').onchange=modelHint;
+$('#closecfg').onclick=()=>$('#dlg').close();
+$('#savecfg').onclick=async()=>{const b={provider:$('#cfgprovider').value,model:$('#model').value.trim(),rpm:+$('#rpm').value||12};if($('#key').value.trim())b.api_key=$('#key').value;await post('/api/settings',b);$('#dlg').close();await loadModels();await loadProviders(false);toast('AI設定を保存しました')};
+async function loadModels(){
+  const st=await api('/api/settings'),sel=$('#modelsel');aiSettings=st;sel.replaceChildren();
+  for(const[p,cfg]of Object.entries(PROVIDERS)){const group=h('optgroup',{label:cfg.label});let list=[...cfg.models];if(p===st.provider&&!list.some(m=>m[0]===st.model))list.push([st.model,st.model+'（カスタム）']);
+    list.forEach(([m,l])=>group.append(h('option',{value:p+'|'+m},l)));sel.append(group)}
+  sel.value=st.provider+'|'+st.model;
+  sel.onchange=async()=>{const[p,...rest]=sel.value.split('|'),m=rest.join('|');await post('/api/settings',{provider:p,model:m});aiSettings={...aiSettings,provider:p,model:m};toast('採点 AI を '+PROVIDERS[p].label+' / '+(m||'既定')+' に変更しました')};
+}
+
+// ---------- help / provider status
+const stateText={available:'利用可能',unavailable:'未設定',unknown:'未確認'};
+async function loadProviders(autoOpen){
+  try{const{providers}=await api('/api/providers');for(const[p,s]of Object.entries(providers)){const b=$('#st-'+p);b.className='badge '+s.state;b.textContent=stateText[s.state]||s.state;$('#msg-'+p).textContent=s.detail||''}
+    if(autoOpen&&!Object.values(providers).some(x=>x.available)&&!localStorage.getItem('graderSetupSeen'))$('#helpdlg').showModal();
+  }catch(e){for(const p of Object.keys(PROVIDERS))$('#msg-'+p).textContent='状態取得失敗: '+e.message}
+}
+$('#help').onclick=()=>{$('#helpdlg').showModal();loadProviders(false)};
+$('#closehelp').onclick=()=>{localStorage.setItem('graderSetupSeen','1');$('#helpdlg').close()};
+$('#openconfig').onclick=()=>{$('#helpdlg').close();openCfg()};
+document.querySelectorAll('[data-test]').forEach(btn=>btn.onclick=async()=>{const p=btn.dataset.test,msg=$('#msg-'+p);btn.disabled=true;msg.textContent='接続テスト中…';try{const model=aiSettings&&aiSettings.provider===p?aiSettings.model:PROVIDERS[p].models[0][0];const r=await post('/api/providers/test',{provider:p,model});msg.textContent='成功: '+r.message;await loadProviders(false)}catch(e){msg.textContent='失敗: '+e.message}finally{btn.disabled=false}});
+
+// ---------- student
+async function open(id,keepScroll){
+  const y=$('#main').scrollTop;cur=id;
+  data=await api(W('student',id));
+  grade=Object.assign({marks:{},notes:{},comment:'',adjust:0,done:false,src:{},ai:{},ai_sec:{},h_at:{}},data.grade||{});
+  render();renderList();$('#main').scrollTop=keepScroll?y:0;
+}
+function mark(sec,it){const m=grade.marks[sec.id+'|'+it.key];return m===undefined?null:m}
+function secScore(sec){let p=0;for(const it of sec.items)p+=it.weight*(mark(sec,it)??0);return p}
+function totals(){let t=0,un=0;for(const s of data.parsed.sections){t+=secScore(s);for(const it of s.items)if(mark(s,it)===null&&!it.empty)un++}
+  return{t:Math.max(0,Math.min(meta.total,t+(+grade.adjust||0))),un}}
+function save(){clearTimeout(saveT);saveT=setTimeout(async()=>{
+  const body={...grade};
+  await post(W('grade',cur),body);
+  const s=students.find(x=>x.id===cur);if(s){const{t,un}=totals();s.total=Math.round(t*100)/100;s.unmarked=un;s.started=true;s.graded=!!grade.done}
+  renderList();toast('保存しました')},400)}
+function refreshScores(){
+  const{t,un}=totals();
+  $('#tot').firstChild.textContent=(Math.round(t*10)/10)+' ';
+  $('#unm').textContent=un?`未採点 ${un} 項目`:'全項目採点済み';
+  data.parsed.sections.forEach((s,i)=>{const e=document.getElementById('sc'+i);if(e)e.textContent=(Math.round(secScore(s)*10)/10)+' / '+Math.round(s.weight*10)/10});
+}
+
+// ---------- AI
+async function aiStudent(id,onStep){
+  const info=await api(W('student',id));
+  const secs=info.parsed.sections.filter(s=>s.found);
+  let done=0;const errs=[];
+  const queue=[...secs];
+  async function worker(){
+    while(queue.length){
+      const s=queue.shift();
+      try{const r=await post(W('ai',id,'&sec='+encodeURIComponent(s.id)));
+        if(id===cur&&r.grade){grade=Object.assign(grade,{marks:r.grade.marks,src:r.grade.src,ai:r.grade.ai,ai_sec:r.grade.ai_sec,ai_model:r.grade.ai_model,ai_at:r.grade.ai_at})}
+      }catch(e){errs.push(`問題${s.id}: ${e.message}`)}
+      done++;onStep&&onStep(done,secs.length);
+    }
+  }
+  await Promise.all([worker(),worker(),worker()]);
+  return errs;
+}
+async function aiCurrent(){
+  if(busy)return;busy=true;const btn=$('#aibtn');if(btn)btn.disabled=true;
+  const errs=await aiStudent(cur,(d,n)=>{toast(`AI採点中… ${d}/${n} 問`,60000);const p=$('#prog2 i');if(p)p.style.width=(100*d/n)+'%'});
+  busy=false;await open(cur,true);await loadList();
+  toast(errs.length?'一部失敗: '+errs.join(' / '):'AI採点が完了しました（結果を確認して調整してください）',errs.length?8000:3000);
+}
+$('#aiall').onclick=async()=>{
+  if(busy)return;
+  const targets=students.filter(s=>!s.error&&!s.ai);
+  if(!targets.length)return toast('AI未採点の提出はありません');
+  const who=PROVIDERS[aiSettings?.provider]?.label||'AI';
+  if(!confirm(`第${week}回の AI 未採点 ${targets.length} 件を ${who} で採点します。提出内容が選択中の AI に送信され、件数分の利用枠または料金を消費する可能性があります。実行しますか？`))return;
+  busy=true;let k=0,bad=0;
+  for(const s of targets){k++;toast(`AI採点 ${k}/${targets.length}：${s.name}`,60000);
+    const errs=await aiStudent(s.id);if(errs.length){bad++;toast(`${s.name}: ${errs[0]}`,5000);if(/API キー|HTTP 40[13]/.test(errs[0]))break}}
+  busy=false;await loadList();if(cur)await open(cur,true);toast(`AI採点 完了（${k}件処理／エラー ${bad}件）`,5000);
+};
+
+// ---------- rendering
+const fmt=t=>t?t.replace('T',' ').slice(0,16):'';
+const stamp=o=>[o.model,fmt(o.at)].filter(Boolean).join(' · ');
+const valText=v=>v===null||v===undefined?'':String(v).trim();
+function render(){
+  const m=$('#main');m.replaceChildren();
+  if(data.parsed.error){m.append(h('div',{class:'emptyview'},data.parsed.error));return}
+  if(!meta.has_reference)m.append(h('div',{class:'modewarn'},'解答例がないため AI の判断のみで採点しています。問題文・答案・実行結果から評価するため、必ず人が確認してください。'));
+  m.append(h('div',{class:'top'},
+    h('h2',{},data.name),
+    h('div',{class:'big',id:'tot'},'0 ',h('small',{},'/ '+Math.round(meta.total))),
+    h('span',{class:'pill',id:'unm'}),
+    h('div',{style:'flex:1'}),
+    h('button',{id:'aibtn',class:'ai-b',onclick:aiCurrent},'この提出をAI採点'),
+    meta.has_reference?h('label',{class:'hint'},h('input',{type:'checkbox',checked:showRef,onchange:e=>{showRef=e.target.checked;render()}}),' 模範解答'):null,
+    h('button',{onclick:async()=>{if(!confirm(`${data.name} を一覧から外します（_削除済み フォルダへ移動。採点結果は残ります）`))return;await post(W('delete',cur));cur=null;await loadList();setWeek(week)}},'削除'),
+    h('div',{id:'prog2',style:'flex-basis:100%'},h('i'))));
+  data.parsed.sections.forEach((s,i)=>m.append(section(s,i)));
+  m.append(footer());refreshScores();
+}
+function section(s,i){
+  const body=h('div',{class:'body'});
+  if(!s.found)body.append(h('p',{class:'empty'},'この問題の解答セルが提出物に見つかりません（セルの見出しを書き換えた可能性）'));
+  if(s.checks.length)body.append(h('div',{class:'chk'},s.checks.map(c=>h('span',{class:c.ok?'ok':'ng'},(c.ok?'✓ ':'✗ ')+c.label))));
+  const as=grade.ai_sec&&grade.ai_sec[s.id],asx=as&&(typeof as==='string'?{text:as}:as);
+  if(asx&&asx.text)body.append(h('div',{class:'ai'},h('b',{},'AI 総評 · '+stamp(asx)),asx.text));
+  if(s.finals.length)body.append(h('pre',{},s.finals.join('\n')));
+  if(s.outputs.length)body.append(h('details',{},h('summary',{},'実行出力（実験ログなど）'),
+    s.outputs.map(o=>o.kind==='image'?h('div',{class:'out'},h('img',{src:o.data})):h('pre',{class:o.kind==='error'?'empty':''},o.data))));
+  body.append(h('div',{class:'row'},
+    h('button',{onclick:()=>{for(const it of s.items){const k=s.id+'|'+it.key;if(mark(s,it)===null){grade.marks[k]=it.empty?0:1;grade.src[k]='h';grade.h_at[k]=new Date().toISOString().slice(0,19)}}upd()}},'未採点：記入あり→○ / 空欄→×'),
+    h('button',{onclick:()=>{for(const it of s.items){const k=s.id+'|'+it.key;delete grade.marks[k];delete grade.src[k];delete grade.h_at[k]}upd()}},'リセット')));
+  for(const it of s.items)body.append(item(s,it));
+  return h('section',{class:'sec'},h('h3',{onclick:()=>{body.hidden=!body.hidden}},h('span',{},s.title),h('span',{class:'sc',id:'sc'+i})),body);
+  function upd(){save();render()}
+}
+function item(s,it){
+  const key=s.id+'|'+it.key,mk=h('div',{class:'marks'});
+  for(const[m,l]of[[1,'○'],[0.5,'△'],[0,'×']])mk.append(h('button',{'data-m':m,class:mark(s,it)===m?'on':'',onclick:()=>{
+    if(grade.marks[key]===m){delete grade.marks[key];delete grade.src[key];delete grade.h_at[key]}else{grade.marks[key]=m;grade.src[key]='h';grade.h_at[key]=new Date().toISOString().slice(0,19)}
+    mk.querySelectorAll('button').forEach(x=>x.classList.toggle('on',grade.marks[key]===+x.dataset.m));
+    wrap.querySelectorAll('.srcb').forEach(x=>x.remove());refreshScores();save()}},l));
+  const isAi=grade.src&&grade.src[key]==='ai';
+  const wrap=h('div',{class:'item'},h('div',{class:'ih'},h('div',{class:'lab'},isAi?h('span',{class:'srcb'},'AI'):(grade.src&&grade.src[key]==='h'?h('span',{class:'srcb',style:'color:var(--ink);border-color:var(--ink)'},'手動'):null),it.label,h('code',{},it.kind==='explain'?'':it.key)),mk));
+  if(it.kind==='explain'){
+    wrap.append(h('div',{class:'hint'},'自動判定：'+it.auto+'（初期文言のままは未記入扱い）'));
+    const tb=h('table',{class:'ex'});
+    for(const l of it.lines)tb.append(h('tr',{class:l.filled?'':'no'},h('td',{class:'c'},l.code),h('td',{class:'s'},l.stu||'（未記入）'),showRef?h('td',{style:'opacity:.6'},l.ref):null));
+    wrap.append(tb);
+  }else{
+    const withRef=showRef&&meta.has_reference;
+    const cols=h('div',{class:'cols'+(withRef?'':' one')},h('div',{class:'box stu'},h('h6',{},'提出'),it.empty?h('span',{class:'empty'},'（未記入）'):valText(it.stu)));
+    if(withRef)cols.append(h('div',{class:'box ref'},h('h6',{},'模範解答'),valText(it.ref)));
+    wrap.append(cols);
+    if(it.dup)wrap.append(h('div',{class:'dup'},'⚠ 他の提出と同一の記述：'+it.dup.join(', ')));
+  }
+  const a=grade.ai&&grade.ai[key];
+  if(a&&a.comment)wrap.append(h('div',{class:'ai'},h('b',{},'AI 講評 · 提案 '+({1:'○',0.5:'△',0:'×'}[a.mark]??'')+' · '+stamp(a)),a.comment));
+  wrap.append(h('input',{class:'memo',placeholder:'メモ（学生へのフィードバック）',value:grade.notes[key]||'',oninput:e=>{grade.notes[key]=e.target.value;save()}}));
+  return wrap;
+}
+function footer(){
+  const ta=h('textarea',{placeholder:'総評コメント',oninput:e=>{grade.comment=e.target.value;save()}},grade.comment||'');
+  const secs=Object.entries(grade.ai_sec||{}).map(([k,v])=>[k,typeof v==='string'?v:(v&&v.text)]).filter(([,v])=>v);
+  return h('div',{class:'foot'},
+    h('div',{class:'row'},
+      h('label',{},'加減点 ',h('input',{type:'number',step:'0.5',value:grade.adjust||0,style:'width:80px',oninput:e=>{grade.adjust=+e.target.value||0;refreshScores();save()}})),
+      h('label',{},h('input',{type:'checkbox',checked:!!grade.done,onchange:e=>{grade.done=e.target.checked;grade.done_at=grade.done?new Date().toISOString().slice(0,19):null;save()}}),' 採点完了'),
+      secs.length?h('button',{class:'ai-b',onclick:()=>{ta.value=secs.map(([k,v])=>`【問題${k}】${v}`).join('\n');grade.comment=ta.value;save()}},'AI総評を総評コメントに取り込む'):null),
+    ta,
+    h('div',{class:'row'},h('button',{class:'pri',onclick:()=>{grade.done=true;grade.done_at=new Date().toISOString().slice(0,19);save();const i=students.findIndex(s=>s.id===cur);if(i<students.length-1)setTimeout(()=>open(students[i+1].id),500);else render()}},'採点完了して次へ')));
+}
+async function boot(){await loadModels();await init();await loadProviders(true)}
+boot().catch(e=>{console.error(e);toast('初期化失敗: '+e.message,8000)});
+</script>
+</body>
+</html>

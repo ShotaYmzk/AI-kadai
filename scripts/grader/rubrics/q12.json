@@ -1,0 +1,5 @@
+{
+  "title": "第12回 不均衡データと ROC",
+  "weights": {"1": 15, "2-0": 5, "2": 35, "3": 20, "4": 25},
+  "checks": {"2": {"min_trials": 15, "final_test": true}}
+}

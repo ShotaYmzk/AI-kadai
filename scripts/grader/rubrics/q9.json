@@ -1,0 +1,33 @@
+{
+  "title": "第9回 正則化",
+  "weights": {
+    "1": 10,
+    "2-0": 5,
+    "2": 25,
+    "3": 15,
+    "4-0": 5,
+    "4": 25,
+    "5": 15
+  },
+  "checks": {
+    "1": {
+      "min_trials": 3
+    },
+    "2": {
+      "min_trials": 15,
+      "must_include": [
+        "Ridge",
+        "Lasso"
+      ],
+      "final_test": true
+    },
+    "4": {
+      "min_trials": 12,
+      "must_include": [
+        "l1",
+        "l2"
+      ],
+      "final_test": true
+    }
+  }
+}

@@ -19,6 +19,7 @@
 | 参考資料（基礎） | [`data/Pythonの基礎.ipynb`](data/Pythonの基礎.ipynb) |
 | 参考資料（発展） | [`data/Pythonの発展.ipynb`](data/Pythonの発展.ipynb), [`data/Pythonの発展.md`](data/Pythonの発展.md) |
 | データセット | [`data/`](data/) 配下の CSV |
+| 採点 Web UI | [scripts/grader/README.md](scripts/grader/README.md) |
 
 演習ノートブックの形式は2部で異なります。
 

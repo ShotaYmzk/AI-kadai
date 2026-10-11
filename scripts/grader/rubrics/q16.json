@@ -1,0 +1,8 @@
+{
+  "title": "第16回 ANN と CNN・モデル比較",
+  "weights": {"1": 20, "2-0": 5, "2": 30, "3": 20, "4": 25},
+  "checks": {
+    "2": {"min_trials": 15, "must_include": ["LinearNet", "DeepMLP", "SimpleCNN"]},
+    "4": {"min_trials": 0, "final_test": true}
+  }
+}
